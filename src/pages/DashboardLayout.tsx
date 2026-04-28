@@ -1,5 +1,6 @@
-import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, LogOut } from 'lucide-react';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, Settings, LogOut } from 'lucide-react';
+import { useAuthStore } from '@/lib/store';
 
 const sidebarItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -8,9 +9,19 @@ const sidebarItems = [
   { icon: Scissors, label: 'Serviços', path: '/servicos' },
   { icon: DollarSign, label: 'Financeiro', path: '/financeiro' },
   { icon: Package, label: 'Produtos', path: '/produtos' },
+  { icon: Settings, label: 'Configurações', path: '/configuracoes' },
 ];
 
 export default function DashboardLayout() {
+  const { user, logout } = useAuthStore();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const userInitial = user?.first_name ? user.first_name[0] : (user?.username ? user.username[0] : 'U');
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Sidebar */}
@@ -44,7 +55,10 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="p-4 border-t border-border">
-          <button className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-destructive hover:bg-destructive/10 transition-colors font-medium">
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-destructive hover:bg-destructive/10 transition-colors font-medium"
+          >
             <LogOut className="w-5 h-5" />
             Sair
           </button>
@@ -57,8 +71,11 @@ export default function DashboardLayout() {
         <header className="h-16 bg-card border-b border-border flex items-center justify-between px-8">
           <h2 className="text-lg font-semibold">Richardson Barber</h2>
           <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold">
-              R
+            <span className="text-sm font-medium text-muted-foreground hidden sm:block">
+              Olá, {user?.first_name || user?.username}
+            </span>
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold uppercase">
+              {userInitial}
             </div>
           </div>
         </header>

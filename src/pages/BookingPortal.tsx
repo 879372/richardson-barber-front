@@ -39,32 +39,45 @@ export default function BookingPortal() {
   const { data: services, isLoading: isLoadingServices } = useQuery({
     queryKey: ['services'],
     queryFn: async () => {
-      // Mock data if backend is offline, else fetch
-      try {
-        const res = await api.get<Service[]>('/services');
-        return res.data;
-      } catch (e) {
-        return [
-          { id: '1', name: 'Corte Degradê', description: 'Corte na máquina e tesoura com finalização', price: 40, duration_minutes: 40 },
-          { id: '2', name: 'Barba Terapia', description: 'Toalha quente, massagem e alinhamento', price: 35, duration_minutes: 30 },
-          { id: '3', name: 'Corte + Barba', description: 'Combo completo de cabelo e barba', price: 70, duration_minutes: 70 },
-        ];
-      }
+      const res = await api.get<Service[]>('/services/');
+      return res.data;
     }
   });
 
-  const barbers: Barber[] = [
-    { id: 'b1', name: 'Richardson', avatar_url: null },
-    { id: 'b2', name: 'Matheus', avatar_url: null }
-  ];
+  const { data: barbers, isLoading: isLoadingBarbers } = useQuery({
+    queryKey: ['barbers'],
+    queryFn: async () => {
+      const res = await api.get<Barber[]>('/users/?role=barber');
+      return res.data;
+    }
+  });
 
-  const availableTimes = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'];
+  const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
+    queryKey: ['available-times', selectedBarber?.id, selectedDate],
+    queryFn: async () => {
+      if (!selectedBarber || !selectedDate) return [];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const res = await api.get<string[]>(`/users/${selectedBarber.id}/available_times/?date=${dateStr}`);
+      return res.data;
+    },
+    enabled: !!selectedBarber && !!selectedDate,
+  });
 
   const bookMutation = useMutation({
     mutationFn: async () => {
-      // TODO: Connect to actual backend endpoint
-      // await api.post('/schedules', { ... })
-      return new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate network
+      if (!selectedDate || !selectedTime || !selectedService || !selectedBarber) return;
+      
+      const [hours, minutes] = selectedTime.split(':');
+      const dateTime = new Date(selectedDate);
+      dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+      return api.post('/appointments/public_booking/', {
+        name,
+        phone,
+        service_id: selectedService.id,
+        barber_id: selectedBarber.id,
+        date_time: dateTime.toISOString()
+      });
     },
     onSuccess: () => {
       setIsSuccess(true);
@@ -92,9 +105,25 @@ export default function BookingPortal() {
             <p><strong>Profissional:</strong> {selectedBarber?.name}</p>
             <p><strong>Data:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''} às {selectedTime}</p>
           </div>
-          <Button className="w-full" size="lg" onClick={() => window.location.reload()}>
-            Novo Agendamento
-          </Button>
+          <div className="space-y-3">
+            <Button 
+              className="w-full gap-2 bg-[#4285F4] hover:bg-[#4285F4]/90 border-none text-white"
+              onClick={() => {
+                const [hours, minutes] = selectedTime.split(':');
+                const start = new Date(selectedDate!);
+                start.setHours(parseInt(hours), parseInt(minutes));
+                const end = new Date(start.getTime() + (selectedService?.duration_minutes || 30) * 60000);
+                const fmt = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
+                const url = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent("Corte na Richardson Barber: " + (selectedService?.name || ""))}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent("Profissional: " + (selectedBarber?.name || ""))}&location=${encodeURIComponent("Richardson Barber Shop")}`;
+                window.open(url, '_blank');
+              }}
+            >
+              <Calendar className="w-4 h-4" /> Adicionar ao Google Calendar
+            </Button>
+            <Button variant="outline" className="w-full" size="lg" onClick={() => window.location.reload()}>
+              Fazer novo agendamento
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -172,20 +201,24 @@ export default function BookingPortal() {
             {step === 2 && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
                 <h2 className="text-2xl font-bold mb-6">Escolha o Profissional</h2>
-                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  {barbers.map((barber) => (
-                    <div 
-                      key={barber.id}
-                      onClick={() => setSelectedBarber(barber)}
-                      className={`p-4 sm:p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col items-center text-center gap-2 sm:gap-3 ${selectedBarber?.id === barber.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 hover:bg-accent/5'}`}
-                    >
-                      <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-muted flex items-center justify-center">
-                        <UserIcon className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground" />
+                {isLoadingBarbers ? (
+                  <div className="text-center py-10 text-muted-foreground">Carregando profissionais...</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    {barbers?.map((barber) => (
+                      <div 
+                        key={barber.id}
+                        onClick={() => setSelectedBarber(barber)}
+                        className={`p-4 sm:p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col items-center text-center gap-2 sm:gap-3 ${selectedBarber?.id === barber.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 hover:bg-accent/5'}`}
+                      >
+                        <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-muted flex items-center justify-center">
+                          <UserIcon className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground" />
+                        </div>
+                        <h3 className="font-semibold">{barber.first_name || barber.name}</h3>
                       </div>
-                      <h3 className="font-semibold">{barber.name}</h3>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -210,17 +243,25 @@ export default function BookingPortal() {
                 {selectedDate && (
                   <div className="space-y-2 animate-in fade-in duration-300">
                     <label className="text-sm font-medium text-muted-foreground">Horários Disponíveis</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
-                      {availableTimes.map((time) => (
-                        <div
-                          key={time}
-                          onClick={() => setSelectedTime(time)}
-                          className={`p-3 text-center rounded-lg border-2 cursor-pointer font-medium transition-colors ${selectedTime === time ? 'bg-primary border-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/50'}`}
-                        >
-                          {time}
-                        </div>
-                      ))}
-                    </div>
+                    {isLoadingTimes ? (
+                      <div className="text-center py-6 italic text-sm">Consultando horários...</div>
+                    ) : availableTimes?.length === 0 ? (
+                      <div className="text-center py-6 text-sm text-muted-foreground bg-accent/5 rounded-lg border border-dashed border-border">
+                        Nenhum horário disponível para esta data.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
+                        {availableTimes?.map((time) => (
+                          <div
+                            key={time}
+                            onClick={() => setSelectedTime(time)}
+                            className={`p-3 text-center rounded-lg border-2 cursor-pointer font-medium transition-colors ${selectedTime === time ? 'bg-primary border-primary text-primary-foreground' : 'border-border bg-background hover:border-primary/50'}`}
+                          >
+                            {time}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
