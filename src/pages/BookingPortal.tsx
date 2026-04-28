@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Scissors, Calendar, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Scissors, Calendar as CalendarIcon, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { api } from '@/lib/api';
 
 // Types
@@ -14,7 +17,7 @@ const steps = [
   { id: 1, title: 'Serviço', icon: Scissors },
   { id: 2, title: 'Profissional', icon: UserIcon },
   { id: 3, title: 'Data e Hora', icon: Clock },
-  { id: 4, title: 'Seus Dados', icon: Calendar },
+  { id: 4, title: 'Seus Dados', icon: CalendarIcon },
 ];
 
 export default function BookingPortal() {
@@ -23,7 +26,7 @@ export default function BookingPortal() {
   // Booking State
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   
   // Form State
@@ -87,7 +90,7 @@ export default function BookingPortal() {
           <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2">
             <p><strong>Serviço:</strong> {selectedService?.name}</p>
             <p><strong>Profissional:</strong> {selectedBarber?.name}</p>
-            <p><strong>Data:</strong> {selectedDate} às {selectedTime}</p>
+            <p><strong>Data:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''} às {selectedTime}</p>
           </div>
           <Button className="w-full" size="lg" onClick={() => window.location.reload()}>
             Novo Agendamento
@@ -98,10 +101,10 @@ export default function BookingPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-10 px-4">
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-6 sm:py-10 px-4">
       {/* Header */}
       <div className="text-center mb-10 space-y-2">
-        <h1 className="text-4xl md:text-5xl font-black tracking-tight text-primary uppercase">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-primary uppercase">
           Richardson<span className="text-foreground">Barber</span>
         </h1>
         <p className="text-muted-foreground text-lg">Agende seu horário com os melhores</p>
@@ -121,8 +124,8 @@ export default function BookingPortal() {
             const isActive = step >= s.id;
             return (
               <div key={s.id} className="flex flex-col items-center gap-2">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors duration-300 ${isActive ? 'bg-primary border-primary text-primary-foreground' : 'bg-card border-border text-muted-foreground'}`}>
-                  <Icon className="w-5 h-5" />
+                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center border-2 transition-colors duration-300 ${isActive ? 'bg-primary border-primary text-primary-foreground' : 'bg-card border-border text-muted-foreground'}`}>
+                  <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <span className={`text-xs font-medium hidden md:block ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
                   {s.title}
@@ -134,12 +137,12 @@ export default function BookingPortal() {
 
         {/* Form Content */}
         <Card className="border-border/50 shadow-2xl bg-card/50 backdrop-blur-xl">
-          <CardContent className="p-6 md:p-8">
+          <CardContent className="p-4 sm:p-6 md:p-8">
             
             {/* Step 1: Services */}
             {step === 1 && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
-                <h2 className="text-2xl font-bold mb-6">Escolha o Serviço</h2>
+                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Escolha o Serviço</h2>
                 {isLoadingServices ? (
                   <div className="text-center py-10 text-muted-foreground">Carregando serviços...</div>
                 ) : (
@@ -169,15 +172,15 @@ export default function BookingPortal() {
             {step === 2 && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
                 <h2 className="text-2xl font-bold mb-6">Escolha o Profissional</h2>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {barbers.map((barber) => (
                     <div 
                       key={barber.id}
                       onClick={() => setSelectedBarber(barber)}
-                      className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col items-center text-center gap-3 ${selectedBarber?.id === barber.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 hover:bg-accent/5'}`}
+                      className={`p-4 sm:p-6 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col items-center text-center gap-2 sm:gap-3 ${selectedBarber?.id === barber.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 hover:bg-accent/5'}`}
                     >
-                      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                        <UserIcon className="w-8 h-8 text-muted-foreground" />
+                      <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-muted flex items-center justify-center">
+                        <UserIcon className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground" />
                       </div>
                       <h3 className="font-semibold">{barber.name}</h3>
                     </div>
@@ -193,19 +196,21 @@ export default function BookingPortal() {
                 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Selecione uma data</label>
-                  <Input 
-                    type="date" 
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full text-lg p-6 bg-background"
-                  />
+                  <div className="flex justify-center border border-border bg-background rounded-xl p-2">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={setSelectedDate}
+                      disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
+                      className="rounded-md"
+                    />
+                  </div>
                 </div>
 
                 {selectedDate && (
                   <div className="space-y-2 animate-in fade-in duration-300">
                     <label className="text-sm font-medium text-muted-foreground">Horários Disponíveis</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
                       {availableTimes.map((time) => (
                         <div
                           key={time}
@@ -252,7 +257,7 @@ export default function BookingPortal() {
                   <ul className="text-sm space-y-1 text-muted-foreground">
                     <li>{selectedService?.name} - R$ {selectedService?.price.toFixed(2)}</li>
                     <li>Com {selectedBarber?.name}</li>
-                    <li>Em {selectedDate?.split('-').reverse().join('/')} às {selectedTime}</li>
+                    <li>Em {selectedDate ? format(selectedDate, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }) : ''} às {selectedTime}</li>
                   </ul>
                 </div>
               </div>
@@ -277,7 +282,7 @@ export default function BookingPortal() {
                   (step === 4 && (!name || !phone)) ||
                   bookMutation.isPending
                 }
-                className="gap-2 px-8"
+                className="gap-2 px-4 sm:px-8"
               >
                 {bookMutation.isPending ? 'Aguarde...' : step === 4 ? 'Confirmar Agendamento' : 'Avançar'}
                 {step < 4 && <ChevronRight className="w-4 h-4" />}
