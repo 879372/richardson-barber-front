@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { format, isAfter, isBefore } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, CheckCircle2, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign } from 'lucide-react';
+import { Clock, User, Scissors, CheckCircle2, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from 'sonner';
 
 type Appointment = {
   id: number;
@@ -39,6 +40,7 @@ type Appointment = {
   date_time: string;
   status: string;
   total_price: string;
+  notes?: string;
 };
 
 const statusMap: Record<string, { label: string; color: string }> = {
@@ -49,8 +51,14 @@ const statusMap: Record<string, { label: string; color: string }> = {
   no_show: { label: 'Faltou', color: 'bg-gray-500/10 text-gray-500' },
 };
 
+const formatCurrency = (value: number | string) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+    typeof value === 'string' ? parseFloat(value) : value
+  );
+
 export default function Agenda() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [statusFilter, setStatusFilter] = useState<string>('confirmed');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
@@ -62,6 +70,7 @@ export default function Agenda() {
       const res = await api.get<Appointment[]>(`/appointments/?date_time__date=${format(selectedDate, 'yyyy-MM-dd')}`);
       return res.data;
     },
+    refetchInterval: 300000, // 5 minutes
   });
 
   const updateStatusMutation = useMutation({
@@ -70,7 +79,9 @@ export default function Agenda() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      toast.success('Status atualizado com sucesso!');
     },
+    onError: () => toast.error('Erro ao atualizar status.'),
   });
 
   const completeWithPaymentsMutation = useMutation({
@@ -82,7 +93,9 @@ export default function Agenda() {
       setShowCompleteModal(false);
       setActiveAppointment(null);
       setPayments([]);
+      toast.success('Atendimento concluído com sucesso!');
     },
+    onError: () => toast.error('Erro ao concluir atendimento.'),
   });
 
   const handleOpenComplete = (app: Appointment) => {
@@ -107,6 +120,11 @@ export default function Agenda() {
 
   const totalPaid = payments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
   const isTotalValid = activeAppointment && Math.abs(totalPaid - parseFloat(activeAppointment.total_price)) < 0.01;
+
+  const filteredAppointments = appointments?.filter(app => {
+    if (statusFilter === 'all') return true;
+    return app.status === statusFilter;
+  }).sort((a, b) => a.date_time.localeCompare(b.date_time));
 
   return (
     <div className="flex flex-col lg:flex-row gap-8">
@@ -150,22 +168,43 @@ export default function Agenda() {
 
       {/* Appointments List */}
       <div className="flex-1 space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold tracking-tight">
-            Agenda: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
-          </h2>
-          <Button variant="outline" onClick={() => setSelectedDate(new Date())}>Hoje</Button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">
+              Agenda: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
+            </h2>
+            <p className="text-sm text-muted-foreground">Gerencie os horários e atendimentos.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px] pl-9 bg-background border-border/50">
+                  <SelectValue placeholder="Filtrar Status" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  <SelectItem value="all">Todos Status</SelectItem>
+                  <SelectItem value="pending">Pendentes</SelectItem>
+                  <SelectItem value="confirmed">Confirmados</SelectItem>
+                  <SelectItem value="completed">Concluídos</SelectItem>
+                  <SelectItem value="cancelled">Cancelados</SelectItem>
+                  <SelectItem value="no_show">Faltas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())}>Hoje</Button>
+          </div>
         </div>
 
         {isLoading ? (
           <div className="text-center py-20 text-muted-foreground italic">Carregando agendamentos...</div>
-        ) : appointments?.length === 0 ? (
+        ) : filteredAppointments?.length === 0 ? (
           <div className="text-center py-20 bg-card/30 rounded-2xl border-2 border-dashed border-border/50">
-            <p className="text-muted-foreground text-lg">Nenhum agendamento para esta data.</p>
+            <p className="text-muted-foreground text-lg">Nenhum agendamento {statusFilter !== 'all' ? `"${statusMap[statusFilter]?.label}"` : ''} para esta data.</p>
           </div>
         ) : (
           <div className="grid gap-4">
-            {appointments?.sort((a, b) => a.date_time.localeCompare(b.date_time)).map((appointment) => (
+            {filteredAppointments?.map((appointment) => (
               <Card key={appointment.id} className="border-border/50 bg-card/50 hover:bg-card transition-colors">
                 <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
@@ -185,8 +224,13 @@ export default function Agenda() {
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1"><Scissors className="w-3.5 h-3.5" /> {appointment.service_name}</span>
                         <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {appointment.barber_name}</span>
-                        <span className="font-medium text-foreground">R$ {appointment.total_price}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(appointment.total_price)}</span>
                       </div>
+                      {appointment.notes && (
+                        <div className="mt-2 p-2 bg-yellow-500/5 rounded border border-yellow-500/20 text-xs text-muted-foreground">
+                          <strong className="text-yellow-600/80">Observação:</strong> {appointment.notes}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -194,7 +238,7 @@ export default function Agenda() {
                     {appointment.status === 'pending' && (
                       <Button 
                         size="sm" 
-                        variant="default"
+                        variant="outline"
                         onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'confirmed' })}
                       >
                         Confirmar
@@ -245,7 +289,7 @@ export default function Agenda() {
           <div className="space-y-4 py-4">
             <div className="flex justify-between items-center text-sm">
               <span className="text-muted-foreground">Valor Total:</span>
-              <span className="font-bold text-lg">R$ {activeAppointment?.total_price}</span>
+              <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
             </div>
 
             <div className="space-y-3">
@@ -296,7 +340,7 @@ export default function Agenda() {
 
             <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
               <span className="text-sm font-medium">Soma dos pagamentos:</span>
-              <span className="font-bold">R$ {totalPaid.toFixed(2)}</span>
+              <span className="font-bold">{formatCurrency(totalPaid)}</span>
             </div>
           </div>
 

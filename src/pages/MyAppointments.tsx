@@ -1,0 +1,187 @@
+import { useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { format, isAfter, isBefore } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { 
+  Clock, 
+  Scissors, 
+  User, 
+  ChevronLeft, 
+  Search, 
+  CheckCircle2, 
+  XCircle, 
+  Phone,
+  History,
+  CalendarDays
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+type Appointment = {
+  id: number;
+  client_name: string;
+  barber_name: string;
+  service_name: string;
+  date_time: string;
+  status: string;
+  total_price: string;
+  notes?: string;
+};
+
+const statusMap: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Pendente', color: 'bg-yellow-500/10 text-yellow-500' },
+  confirmed: { label: 'Confirmado', color: 'bg-blue-500/10 text-blue-500' },
+  completed: { label: 'Concluído', color: 'bg-green-500/10 text-green-500' },
+  cancelled: { label: 'Cancelado', color: 'bg-red-500/10 text-red-500' },
+  no_show: { label: 'Faltou', color: 'bg-gray-500/10 text-gray-500' },
+};
+
+const maskPhone = (value: string) => {
+  if (!value) return "";
+  value = value.replace(/\D/g, "");
+  value = value.replace(/^(\d{2})(\d)/g, "($1) $2");
+  value = value.replace(/(\d)(\d{4})$/, "$1-$2");
+  return value;
+};
+
+export default function MyAppointments() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const phoneParam = searchParams.get('phone') || '';
+  const [phoneInput, setPhoneInput] = useState(maskPhone(phoneParam));
+  const [filter, setFilter] = useState<'active' | 'past'>('active');
+  
+  const { data: appointments, isLoading } = useQuery({
+    queryKey: ['my-appointments', phoneParam],
+    queryFn: async () => {
+      if (!phoneParam) return [];
+      const res = await api.get<Appointment[]>(`/appointments/public_list/?phone=${phoneParam}`);
+      return res.data;
+    },
+    enabled: !!phoneParam
+  });
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPhone = phoneInput.replace(/\D/g, "");
+    if (cleanPhone.length >= 10) {
+      setSearchParams({ phone: cleanPhone });
+    }
+  };
+
+  const filteredAppointments = appointments?.filter(app => {
+    const appDate = new Date(app.date_time);
+    const now = new Date();
+    
+    if (filter === 'active') {
+      // Active: Upcoming appointments or today's appointments that are not cancelled/no-show
+      return isAfter(appDate, now) || (format(appDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd') && app.status !== 'cancelled' && app.status !== 'no_show');
+    } else {
+      // Past: Completed, Cancelled or appointments before now
+      return isBefore(appDate, now) || app.status === 'completed' || app.status === 'cancelled' || app.status === 'no_show';
+    }
+  }).sort((a, b) => {
+    // Sort active by soonest first, past by most recent first
+    return filter === 'active' 
+      ? a.date_time.localeCompare(b.date_time)
+      : b.date_time.localeCompare(a.date_time);
+  });
+
+  return (
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-6 sm:py-10 px-4">
+      {/* Header */}
+      <div className="text-center mb-8 space-y-2">
+        <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-primary uppercase">
+          Richardson<span className="text-foreground">Barber</span>
+        </h1>
+        <p className="text-muted-foreground text-lg">Meus Agendamentos</p>
+      </div>
+
+      <div className="max-w-2xl w-full space-y-6">
+        <Card className="border-border/50 shadow-2xl bg-card/50 backdrop-blur-xl">
+          <CardContent className="p-4 sm:p-6 md:p-8 space-y-6">
+            {/* Search Section */}
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Seu WhatsApp (00) 00000-0000"
+                    className="pl-10 h-11"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(maskPhone(e.target.value))}
+                  />
+                </div>
+                <Button type="submit" className="gap-2 h-11 px-6">
+                  <Search className="w-4 h-4" /> Buscar
+                </Button>
+              </div>
+            </form>
+
+            <div className="border-t border-border/50 pt-6 space-y-6">
+              {phoneParam && (
+                <Tabs value={filter} onValueChange={(val) => setFilter(val as any)} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 bg-muted/50 p-1">
+                    <TabsTrigger value="active" className="gap-2 data-[state=active]:bg-background">
+                      <CalendarDays className="w-4 h-4" /> Ativos
+                    </TabsTrigger>
+                    <TabsTrigger value="past" className="gap-2 data-[state=active]:bg-background">
+                      <History className="w-4 h-4" /> Passados
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
+
+              {!phoneParam ? (
+                <div className="text-center py-10 text-muted-foreground italic">
+                  Informe seu telefone para ver seus agendamentos.
+                </div>
+              ) : isLoading ? (
+                <div className="text-center py-10 text-muted-foreground animate-pulse">
+                  Carregando...
+                </div>
+              ) : filteredAppointments?.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground italic">
+                  Nenhum agendamento {filter === 'active' ? 'ativo' : 'passado'} encontrado.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredAppointments?.map((app) => (
+                    <div key={app.id} className="p-4 rounded-xl border border-border/50 bg-background/50 hover:bg-background/80 transition-colors space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="text-lg font-bold text-primary">
+                            {format(new Date(app.date_time), "dd/MM 'às' HH:mm")}
+                          </div>
+                          <h3 className="font-medium">{app.service_name}</h3>
+                        </div>
+                        <Badge className={statusMap[app.status]?.color + " border-none"}>
+                          {statusMap[app.status]?.label}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> {app.barber_name}</span>
+                        <span className="font-bold text-foreground">R$ {app.total_price}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 flex flex-col sm:flex-row gap-2">
+              <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={() => navigate('/agendar')}>
+                <ChevronLeft className="w-4 h-4" /> Novo Agendamento
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

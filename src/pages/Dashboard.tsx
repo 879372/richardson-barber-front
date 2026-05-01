@@ -1,11 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Calendar, DollarSign, TrendingUp, CheckCircle2, Target, Cake } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 type DashboardData = {
   total_appointments: number;
+  completed_appointments: number;
   predicted_revenue: number;
   completed_revenue: number;
   daily_goal: number;
@@ -17,6 +21,13 @@ type BirthdayData = {
   week: any[];
 };
 
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+};
+
 export default function Dashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard-summary'],
@@ -24,6 +35,7 @@ export default function Dashboard() {
       const res = await api.get<DashboardData>('/dashboard-summary/');
       return res.data;
     },
+    refetchInterval: 300000, // 5 min
   });
 
   const { data: bdays } = useQuery({
@@ -37,21 +49,24 @@ export default function Dashboard() {
   const cards = [
     {
       title: 'Agendamentos Hoje',
-      value: data?.total_appointments || 0,
+      value: `${data?.completed_appointments || 0}/${data?.total_appointments || 0}`,
+      subtitle: `${(data?.total_appointments || 0) - (data?.completed_appointments || 0)} pendentes`,
       icon: Calendar,
       color: 'text-blue-500',
       bg: 'bg-blue-500/10',
     },
     {
       title: 'Faturamento Previsto',
-      value: `R$ ${(data?.predicted_revenue || 0).toFixed(2)}`,
+      value: formatCurrency(data?.predicted_revenue || 0),
+      subtitle: 'Total esperado para hoje',
       icon: DollarSign,
       color: 'text-amber-500',
       bg: 'bg-amber-500/10',
     },
     {
       title: 'Faturamento Realizado',
-      value: `R$ ${(data?.completed_revenue || 0).toFixed(2)}`,
+      value: formatCurrency(data?.completed_revenue || 0),
+      subtitle: 'Valor já em caixa',
       icon: CheckCircle2,
       color: 'text-green-500',
       bg: 'bg-green-500/10',
@@ -78,6 +93,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{isLoading ? '...' : card.value}</div>
+                <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>
               </CardContent>
             </Card>
           );
@@ -87,7 +103,7 @@ export default function Dashboard() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
         <Card className="md:col-span-4 border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-lg font-bold">
               <Target className="w-5 h-5 text-primary" />
               Meta Diária
             </CardTitle>
@@ -95,14 +111,14 @@ export default function Dashboard() {
           <CardContent className="space-y-6">
             <div className="flex justify-between items-end">
               <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Progresso atual</p>
-                <div className="text-3xl font-black">
+                <p className="text-sm text-muted-foreground">Progresso do faturamento</p>
+                <div className="text-4xl font-black">
                   {(data?.progress_percentage || 0).toFixed(1)}%
                 </div>
               </div>
               <div className="text-right space-y-1">
-                <p className="text-sm text-muted-foreground">Meta: R$ {(data?.daily_goal || 0).toFixed(2)}</p>
-                <p className="text-xs text-muted-foreground">Falta: R$ {Math.max(0, (data?.daily_goal || 0) - (data?.completed_revenue || 0)).toFixed(2)}</p>
+                <p className="text-sm font-bold">Meta: {formatCurrency(data?.daily_goal || 0)}</p>
+                <p className="text-xs text-muted-foreground">Falta: {formatCurrency(Math.max(0, (data?.daily_goal || 0) - (data?.completed_revenue || 0)))}</p>
               </div>
             </div>
             <Progress value={data?.progress_percentage} className="h-3" />
@@ -111,8 +127,12 @@ export default function Dashboard() {
                 <TrendingUp className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-sm font-medium">Continue assim!</p>
-                <p className="text-xs text-muted-foreground">Você está no caminho certo para bater a meta de hoje.</p>
+                <p className="text-sm font-bold">Status da Meta</p>
+                <p className="text-xs text-muted-foreground">
+                  {data?.progress_percentage && data.progress_percentage >= 100 
+                    ? 'Parabéns! Meta batida com sucesso! 🚀' 
+                    : 'Mantenha o foco! Você está avançando rumo à meta.'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -120,34 +140,39 @@ export default function Dashboard() {
 
         <Card className="md:col-span-3 border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-lg font-bold">
               <Cake className="w-5 h-5 text-pink-500" />
               Aniversariantes
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider">Hoje</h4>
+              <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider border-b border-border/50 pb-1">Hoje</h4>
               {bdays?.today.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">Nenhum hoje</p>
+                <p className="text-sm text-muted-foreground italic py-2">Nenhum hoje</p>
               ) : (
                 bdays?.today.map((user: any) => (
-                  <div key={user.id} className="flex items-center justify-between p-2 rounded-lg bg-pink-500/5 border border-pink-500/10">
-                    <span className="text-sm font-medium">{user.first_name || user.username}</span>
-                    <Cake className="w-3 h-3 text-pink-500" />
+                  <div key={user.id} className="flex items-center justify-between p-3 rounded-xl bg-pink-500/5 border border-pink-500/10">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold">{user.first_name || user.username}</span>
+                      <span className="text-[10px] text-pink-500/70 font-medium">Parabéns! 🎂</span>
+                    </div>
+                    <Cake className="w-4 h-4 text-pink-500" />
                   </div>
                 ))
               )}
             </div>
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider">Próximos 7 dias</h4>
+            <div className="space-y-2 pt-2">
+              <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider border-b border-border/50 pb-1">Próximos 7 dias</h4>
               {bdays?.week.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">Nenhum nos próximos dias</p>
+                <p className="text-sm text-muted-foreground italic py-2">Nenhum nos próximos dias</p>
               ) : (
                 bdays?.week.map((user: any) => (
                   <div key={user.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/5">
-                    <span className="text-sm">{user.first_name || user.username}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(user.birth_date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</span>
+                    <span className="text-sm font-medium">{user.first_name || user.username}</span>
+                    <Badge variant="outline" className="text-[10px] border-slate-200">
+                      {user.birth_date ? format(new Date(user.birth_date + 'T00:00:00'), 'dd/MM') : '--'}
+                    </Badge>
                   </div>
                 ))
               )}

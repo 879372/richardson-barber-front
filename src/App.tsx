@@ -11,6 +11,8 @@ import Dashboard from './pages/Dashboard';
 import Agenda from './pages/Agenda';
 import Financeiro from './pages/Financeiro';
 import Settings from './pages/Settings';
+import Profissionais from './pages/Profissionais';
+import MyAppointments from './pages/MyAppointments';
 import { useAuthStore } from './lib/store';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
@@ -18,11 +20,15 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   return token ? <>{children}</> : <Navigate to="/login" replace />;
 };
 
+import { Toaster } from 'sonner';
+
 function App() {
   return (
     <BrowserRouter>
+      <Toaster position="top-right" expand={false} richColors />
       <Routes>
         <Route path="/agendar" element={<BookingPortal />} />
+        <Route path="/meus-agendamentos" element={<MyAppointments />} />
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -32,6 +38,7 @@ function App() {
           <Route path="servicos" element={<Services />} />
           <Route path="financeiro" element={<Financeiro />} />
           <Route path="produtos" element={<Products />} />
+          <Route path="profissionais" element={<Profissionais />} />
           <Route path="configuracoes" element={<Settings />} />
         </Route>
       </Routes>
