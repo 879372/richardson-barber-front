@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Scissors, Calendar as CalendarIcon, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight, Search, Loader2 } from 'lucide-react';
+import { Scissors, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight, Search, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';

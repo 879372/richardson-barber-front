@@ -2,10 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, DollarSign, TrendingUp, CheckCircle2, Target, Cake } from 'lucide-react';
+import { Calendar, TrendingUp, CheckCircle2, Target, Cake } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 
 type DashboardData = {
   total_appointments: number;

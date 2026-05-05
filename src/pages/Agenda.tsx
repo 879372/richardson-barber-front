@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format, isAfter, isBefore } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, CheckCircle2, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter } from 'lucide-react';
+import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,

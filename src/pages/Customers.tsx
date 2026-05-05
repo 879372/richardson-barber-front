@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { User, Phone, Calendar, Mail, History, FileText, Loader2, Save, MessageSquare } from 'lucide-react';
+import { User, Phone, Calendar, History, Loader2, Save, MessageSquare } from 'lucide-react';
 import { 
   Sheet, 
   SheetContent, 
