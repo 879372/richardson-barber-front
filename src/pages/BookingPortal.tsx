@@ -121,8 +121,9 @@ export default function BookingPortal() {
       setIsSuccess(true);
       toast.success('Horário agendado com sucesso!');
     },
-    onError: () => {
-      toast.error('Erro ao realizar agendamento. Tente outro horário.');
+    onError: (error: any) => {
+      const errorMessage = error.response?.data?.error || 'Erro ao realizar agendamento. Tente outro horário.';
+      toast.error(errorMessage);
     }
   });
 
