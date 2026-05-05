@@ -524,63 +524,57 @@ export default function BookingPortal() {
 
       {/* Confirmation Modal */}
       <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
-        <DialogContent className="sm:max-w-md bg-card border-border backdrop-blur-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold">Resumo do Agendamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="bg-primary/5 border border-primary/10 rounded-2xl p-5 space-y-4">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground font-medium">Cliente:</span>
-                <span className="font-medium">{name}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground font-medium">Serviço:</span>
-                <span className="font-medium text-primary">{selectedService?.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground font-medium">Barbeiro:</span>
-                <span className="font-medium">{selectedBarber?.first_name || selectedBarber?.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground font-medium">Horário:</span>
-                <span className="font-bold">
-                  {selectedDate ? format(selectedDate, "dd/MM/yyyy") : ''} às <span className="text-primary">{selectedTime}</span>
-                </span>
-              </div>
-              <div className="pt-3 border-t border-primary/10 flex justify-between items-baseline font-semibold">
-                <span className="text-xs uppercase tracking-widest">Total:</span>
-                <span className="text-2xl text-primary">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(selectedService?.price || 0))}
-                </span>
+        <DialogContent className="sm:max-w-md bg-card border-border backdrop-blur-2xl p-6 sm:p-8">
+          <div className="text-center space-y-6">
+            <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mx-auto">
+              <Clock className="w-10 h-10 text-primary" />
+            </div>
+            
+            <DialogHeader className="text-center">
+              <DialogTitle className="text-2xl font-semibold text-center mx-auto">Confirmar Horário</DialogTitle>
+            </DialogHeader>
+            
+            <p className="text-muted-foreground text-sm sm:text-base mt-0">
+              Quase lá! Confira os dados abaixo antes de finalizar.
+            </p>
+
+            <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2 text-sm sm:text-base">
+              <p><strong>Cliente:</strong> {name}</p>
+              <p><strong>Serviço:</strong> {selectedService?.name}</p>
+              <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
+              <p><strong>Data:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy") : ''} às {selectedTime}</p>
+              <div className="pt-3 mt-3 border-t border-border/50 flex justify-between items-center">
+                <strong>Total:</strong>
+                <span className="text-primary font-bold text-lg">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(selectedService?.price || 0))}</span>
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 text-left">
               <label className="text-xs text-muted-foreground ml-1">Algum recado? (Opcional)</label>
               <Textarea 
                 placeholder="Ex: Gostaria de um café gelado..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="bg-background border-border/50 min-h-[100px] rounded-xl focus:border-primary"
+                className="bg-background/50 border-border/50 min-h-[80px] rounded-xl focus:border-primary resize-none text-sm"
               />
             </div>
+
+            <div className="space-y-3 pt-2">
+              <Button 
+                className="w-full h-12 shadow-lg shadow-primary/20 text-base font-bold"
+                onClick={() => {
+                  setIsConfirmModalOpen(false);
+                  bookMutation.mutate();
+                }}
+                disabled={bookMutation.isPending}
+              >
+                {bookMutation.isPending ? 'Confirmando...' : 'Confirmar Agendamento'}
+              </Button>
+              <Button variant="ghost" className="w-full text-muted-foreground" onClick={() => setIsConfirmModalOpen(false)}>
+                Voltar e alterar dados
+              </Button>
+            </div>
           </div>
-          <DialogFooter className="gap-3 sm:gap-2">
-            <Button variant="ghost" onClick={() => setIsConfirmModalOpen(false)}>
-              Alterar dados
-            </Button>
-            <Button 
-              className="h-12 px-8 shadow-lg shadow-primary/20"
-              onClick={() => {
-                setIsConfirmModalOpen(false);
-                bookMutation.mutate();
-              }}
-              disabled={bookMutation.isPending}
-            >
-              {bookMutation.isPending ? 'Confirmando...' : 'Confirmar Agendamento'}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
