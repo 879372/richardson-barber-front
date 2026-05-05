@@ -234,8 +234,11 @@ export default function BookingPortal() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-6 sm:py-10 px-4">
       {/* Header */}
-      <div className="text-center mb-10 space-y-2">
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-primary">
+      <div className="text-center mb-10 space-y-4">
+        <div className="w-24 h-24 mx-auto border border-primary/20 rounded-2xl overflow-hidden shadow-lg shadow-primary/10">
+          <img src="/logo.png" alt="Richardson Barber" className="w-full h-full object-cover" />
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-primary hidden sm:block">
           Richardson<span className="text-foreground">Barber</span>
         </h1>
         <p className="text-muted-foreground text-lg">Agende seu horário com os melhores</p>

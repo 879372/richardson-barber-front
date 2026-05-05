@@ -81,11 +81,18 @@ export default function Profissionais() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
-    saveBarberMutation.mutate({
+    const payload: any = {
       username: formData.get('username'),
       first_name: formData.get('first_name'),
       phone: formData.get('phone'),
-    });
+    };
+
+    const newPassword = formData.get('password');
+    if (newPassword) {
+      payload.password = newPassword;
+    }
+    
+    saveBarberMutation.mutate(payload);
   };
 
   return (
@@ -145,11 +152,24 @@ export default function Profissionais() {
                   className="h-11 bg-background border-border/50"
                 />
               </div>
+              
+              {editingBarber && (
+                <div className="space-y-2">
+                  <label className="text-sm font-bold">Nova Senha <span className="text-muted-foreground font-normal text-xs">(opcional)</span></label>
+                  <Input 
+                    name="password" 
+                    type="password"
+                    placeholder="Deixe em branco para manter a atual" 
+                    className="h-11 bg-background border-border/50"
+                  />
+                </div>
+              )}
+
               {!editingBarber && (
                 <div className="flex gap-2 p-3 rounded-xl bg-primary/5 border border-primary/10">
                   <Shield className="w-4 h-4 text-primary shrink-0" />
                   <p className="text-[10px] text-muted-foreground leading-tight">
-                    <strong>Importante:</strong> A senha padrão inicial para novos profissionais será: <code className="bg-primary/10 px-1 rounded font-bold text-primary">barberpassword123</code>. Oriente o profissional a alterá-la no primeiro acesso.
+                    <strong>Importante:</strong> A senha padrão inicial para novos profissionais será: <code className="bg-primary/10 px-1 rounded font-bold text-primary">barberpassword123</code>. Você poderá alterá-la depois editando o perfil.
                   </p>
                 </div>
               )}

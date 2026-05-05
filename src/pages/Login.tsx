@@ -59,8 +59,8 @@ export default function Login() {
 
       <Card className="max-w-md w-full border-border/50 shadow-2xl bg-card/50 backdrop-blur-xl">
         <CardHeader className="text-center space-y-2">
-          <div className="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-primary/20">
-            <Scissors className="w-8 h-8 text-primary" />
+          <div className="w-20 h-20 mx-auto mb-4 border border-primary/20 rounded-2xl overflow-hidden shadow-lg shadow-primary/10">
+            <img src="/logo.png" alt="Richardson Barber" className="w-full h-full object-cover" />
           </div>
           <CardTitle className="text-3xl font-black tracking-tight uppercase">
             Richardson<span className="text-primary">Barber</span>
