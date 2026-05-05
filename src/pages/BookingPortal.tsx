@@ -61,7 +61,7 @@ export default function BookingPortal() {
         const appDate = new Date(app.date_time);
         const now = new Date();
         const isToday = format(appDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd');
-        return (appDate > now || isToday) && app.status !== 'cancelled' && app.status !== 'no_show' && app.status !== 'completed';
+        return (appDate > now || isToday) && app.status === 'confirmed';
       });
     },
     enabled: isPhoneChecked && phoneExists
@@ -298,7 +298,11 @@ export default function BookingPortal() {
                         <div className="space-y-3">
                           <p className="text-xs text-muted-foreground ml-1">Seus próximos horários:</p>
                           {userActiveAppointments.map((app: any) => (
-                            <div key={app.id} className="p-4 bg-card border border-border/50 rounded-2xl flex justify-between items-center group hover:border-primary/30 transition-all">
+                            <div 
+                              key={app.id} 
+                              onClick={() => navigate(`/meus-agendamentos?phone=${phone.replace(/\D/g, '')}`)}
+                              className="p-4 bg-card border border-border/50 rounded-2xl flex justify-between items-center group hover:border-primary/30 transition-all cursor-pointer hover:bg-primary/5"
+                            >
                               <div className="flex gap-4 items-center">
                                 <div className="w-12 h-12 bg-primary/10 rounded-xl flex flex-col items-center justify-center border border-primary/10 group-hover:bg-primary/20 transition-colors">
                                   <span className="text-sm font-medium text-primary leading-none">{format(new Date(app.date_time), 'HH:mm')}</span>

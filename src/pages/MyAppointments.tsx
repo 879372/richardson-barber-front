@@ -104,8 +104,8 @@ export default function MyAppointments() {
     const now = new Date();
     
     if (filter === 'active') {
-      // Active: Upcoming appointments or today's appointments that are not cancelled/no-show
-      return isAfter(appDate, now) || (format(appDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd') && app.status !== 'cancelled' && app.status !== 'no_show');
+      // Active: Upcoming confirmed appointments or today's confirmed appointments
+      return (isAfter(appDate, now) || format(appDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd')) && app.status === 'confirmed';
     } else {
       // Past: Completed, Cancelled or appointments before now
       return isBefore(appDate, now) || app.status === 'completed' || app.status === 'cancelled' || app.status === 'no_show';
