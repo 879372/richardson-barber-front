@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, DollarSign, Plus, Calendar as CalendarIcon, FileText, Loader2, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Plus, Calendar as CalendarIcon, FileText, Loader2, Filter, ChevronLeft, ChevronRight, Scissors } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 
 type FinancialSummary = {
   total_revenue: number;
+  service_revenue: number;
+  product_revenue: number;
   total_expenses: number;
   net_profit: number;
   method_summary: { method: string; total_amount: number; count: number }[];
@@ -94,11 +96,25 @@ export default function Financeiro() {
 
   const stats = [
     {
-      title: 'Faturamento',
+      title: 'Faturamento Total',
       value: formatCurrency(summary?.total_revenue || 0),
       icon: TrendingUp,
       color: 'text-green-500',
       description: 'Receita total no período'
+    },
+    {
+      title: 'Serviços',
+      value: formatCurrency(summary?.service_revenue || 0),
+      icon: Scissors,
+      color: 'text-blue-500',
+      description: 'Receita de atendimentos'
+    },
+    {
+      title: 'Produtos',
+      value: formatCurrency(summary?.product_revenue || 0),
+      icon: DollarSign,
+      color: 'text-amber-500',
+      description: 'Receita de vendas'
     },
     {
       title: 'Despesas',
@@ -111,7 +127,7 @@ export default function Financeiro() {
       title: 'Resultado',
       value: formatCurrency(summary?.net_profit || 0),
       icon: DollarSign,
-      color: summary?.net_profit && summary.net_profit >= 0 ? 'text-blue-500' : 'text-red-600',
+      color: summary?.net_profit && summary.net_profit >= 0 ? 'text-emerald-500' : 'text-red-600',
       description: 'Lucro ou prejuízo líquido'
     }
   ];
@@ -144,19 +160,18 @@ export default function Financeiro() {
         <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>Mês Atual</Button>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-5">
         {stats.map((stat, i) => {
           const Icon = stat.icon;
           return (
             <Card key={i} className="border-border/50 bg-card/50 backdrop-blur-sm print:shadow-none print:border-gray-200 overflow-hidden relative group">
               <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-5 transition-transform group-hover:scale-110 ${stat.color.replace('text', 'bg')}`} />
               <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground">{stat.title}</CardTitle>
-                <Icon className={`w-5 h-5 ${stat.color} print:text-black`} />
+                <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{stat.title}</CardTitle>
+                <Icon className={`w-4 h-4 ${stat.color} print:text-black`} />
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-semibold">{isLoading ? '...' : stat.value}</div>
-                <p className="text-[10px] font-medium text-muted-foreground mt-1 uppercase">{stat.description}</p>
+                <div className="text-xl font-bold">{isLoading ? '...' : stat.value}</div>
               </CardContent>
             </Card>
           );

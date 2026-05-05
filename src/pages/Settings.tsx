@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Clock, Calendar as CalendarIcon, Plus, Loader2, Trash2, Target, Info, CalendarOff, DollarSign } from 'lucide-react';
+import { Clock, Calendar as CalendarIcon, Plus, Loader2, Trash2, Target, Info, CalendarOff, DollarSign, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -51,6 +51,12 @@ type Goal = {
   target_amount: string;
   start_date: string;
   end_date: string | null;
+};
+
+type PaymentMethod = {
+  id: number;
+  name: string;
+  is_active: boolean;
 };
 
 const DAYS = [
@@ -205,6 +211,40 @@ export default function Settings() {
       toast.success('Meta definida com sucesso!');
     },
     onError: () => toast.error('Erro ao definir meta.')
+  });
+
+  // PAYMENT METHODS
+  const { data: paymentMethods, isLoading: isLoadingMethods } = useQuery({
+    queryKey: ['payment-methods'],
+    queryFn: async () => (await api.get<PaymentMethod[]>('/payment-methods/')).data
+  });
+
+  const [isMethodOpen, setIsMethodOpen] = useState(false);
+  const [methodName, setMethodName] = useState('');
+
+  const saveMethodMutation = useMutation({
+    mutationFn: async () => api.post('/payment-methods/', { name: methodName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
+      setIsMethodOpen(false);
+      setMethodName('');
+      toast.success('Forma de pagamento adicionada!');
+    },
+    onError: () => toast.error('Erro ao adicionar forma de pagamento.')
+  });
+
+  const toggleMethodMutation = useMutation({
+    mutationFn: async ({ id, is_active }: { id: number; is_active: boolean }) => 
+      api.patch(`/payment-methods/${id}/`, { is_active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['payment-methods'] }),
+  });
+  
+  const deleteMethodMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/payment-methods/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
+      toast.success('Removido com sucesso.');
+    }
   });
 
   return (
@@ -491,6 +531,63 @@ export default function Settings() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Formas de Pagamento */}
+          <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-medium">
+                  <CreditCard className="w-5 h-5 text-primary" /> Formas de Pagamento
+                </CardTitle>
+                <CardDescription>Configure como seus clientes pagam.</CardDescription>
+              </div>
+              <Dialog open={isMethodOpen} onOpenChange={setIsMethodOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline" className="gap-2 font-bold h-9"><Plus className="w-4 h-4" /> Nova</Button>
+                </DialogTrigger>
+                <DialogContent className="bg-card border-border sm:max-w-sm">
+                  <DialogHeader><DialogTitle className="text-xl font-medium">Nova Forma de Pagamento</DialogTitle></DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label className="font-bold">Nome</Label>
+                      <Input placeholder="Ex: Cartão VR, Link de Pagamento..." value={methodName} onChange={(e) => setMethodName(e.target.value)} className="h-11 bg-background border-border/50" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button className="w-full h-12 font-bold shadow-lg shadow-primary/20" onClick={() => saveMethodMutation.mutate()} disabled={!methodName || saveMethodMutation.isPending}>Salvar</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {isLoadingMethods ? <div className="text-center py-4 italic text-muted-foreground">Carregando...</div> : paymentMethods?.length === 0 ? <div className="text-sm text-muted-foreground italic text-center py-6 border border-dashed border-border/50 rounded-xl">Nenhuma forma personalizada.</div> : (
+                <div className="space-y-3">
+                  {paymentMethods?.map(m => (
+                    <div key={m.id} className="flex justify-between items-center p-3 border border-border/50 rounded-xl bg-background/50">
+                      <div className="flex items-center gap-3">
+                        <Switch 
+                          checked={m.is_active} 
+                          onCheckedChange={(val) => toggleMethodMutation.mutate({ id: m.id, is_active: val })}
+                        />
+                        <span className={`text-sm font-medium ${!m.is_active ? 'text-muted-foreground line-through' : ''}`}>{m.name}</span>
+                      </div>
+                      <Button variant="ghost" size="icon" className="text-destructive h-8 w-8 hover:bg-destructive/10 rounded-full" onClick={() => deleteMethodMutation.mutate(m.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-4 pt-4 border-t border-border/30">
+                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mb-2">Padrão do Sistema</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary" className="bg-muted text-muted-foreground border-none">PIX</Badge>
+                  <Badge variant="secondary" className="bg-muted text-muted-foreground border-none">Dinheiro</Badge>
+                  <Badge variant="secondary" className="bg-muted text-muted-foreground border-none">Cartão</Badge>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

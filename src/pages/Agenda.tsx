@@ -64,6 +64,11 @@ export default function Agenda() {
   const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
   const queryClient = useQueryClient();
 
+  const { data: customMethods } = useQuery({
+    queryKey: ['payment-methods'],
+    queryFn: async () => (await api.get<any[]>('/payment-methods/')).data
+  });
+
   const { data: appointments, isLoading } = useQuery({
     queryKey: ['appointments', format(selectedDate, 'yyyy-MM-dd')],
     queryFn: async () => {
@@ -308,6 +313,9 @@ export default function Agenda() {
                         <SelectItem value="cash">Dinheiro</SelectItem>
                         <SelectItem value="credit">Cartão de Crédito</SelectItem>
                         <SelectItem value="debit">Cartão de Débito</SelectItem>
+                        {customMethods?.filter(m => m.is_active).map(m => (
+                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

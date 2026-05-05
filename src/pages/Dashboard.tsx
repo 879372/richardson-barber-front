@@ -12,6 +12,8 @@ type DashboardData = {
   completed_appointments: number;
   predicted_revenue: number;
   completed_revenue: number;
+  service_revenue: number;
+  product_revenue: number;
   daily_goal: number;
   progress_percentage: number;
 };
@@ -48,7 +50,7 @@ export default function Dashboard() {
 
   const cards = [
     {
-      title: 'Agendamentos Hoje',
+      title: 'Serviços Hoje',
       value: `${data?.completed_appointments || 0}/${data?.total_appointments || 0}`,
       subtitle: `${(data?.total_appointments || 0) - (data?.completed_appointments || 0)} pendentes`,
       icon: Calendar,
@@ -56,17 +58,17 @@ export default function Dashboard() {
       bg: 'bg-blue-500/10',
     },
     {
-      title: 'Faturamento Previsto',
-      value: formatCurrency(data?.predicted_revenue || 0),
-      subtitle: 'Total esperado para hoje',
-      icon: DollarSign,
+      title: 'Venda de Produtos',
+      value: formatCurrency(data?.product_revenue || 0),
+      subtitle: 'Total em produtos hoje',
+      icon: TrendingUp,
       color: 'text-amber-500',
       bg: 'bg-amber-500/10',
     },
     {
-      title: 'Faturamento Realizado',
+      title: 'Faturamento Total',
       value: formatCurrency(data?.completed_revenue || 0),
-      subtitle: 'Valor já em caixa',
+      subtitle: `${formatCurrency(data?.service_revenue || 0)} em serviços`,
       icon: CheckCircle2,
       color: 'text-green-500',
       bg: 'bg-green-500/10',

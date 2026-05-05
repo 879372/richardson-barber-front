@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { format, isAfter, isBefore } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -14,13 +14,26 @@ import {
   XCircle, 
   Phone,
   History,
-  CalendarDays
+  CalendarDays,
+  Loader2
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type Appointment = {
   id: number;
@@ -64,6 +77,21 @@ export default function MyAppointments() {
       return res.data;
     },
     enabled: !!phoneParam
+  });
+  
+  const queryClient = useQueryClient();
+  
+  const cancelMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/public_cancel/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-appointments'] });
+      toast.success('Agendamento cancelado com sucesso.');
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.error || 'Erro ao cancelar agendamento.');
+    }
   });
 
   const handleSearch = (e: React.FormEvent) => {
@@ -165,9 +193,38 @@ export default function MyAppointments() {
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> {app.barber_name}</span>
                         <span className="font-bold text-foreground">R$ {app.total_price}</span>
                       </div>
+                      
+                      {filter === 'active' && (app.status === 'confirmed' || app.status === 'pending') && (
+                        <div className="pt-2 border-t border-border/30 mt-2">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="outline" size="sm" className="w-full text-destructive hover:bg-destructive/10 border-destructive/20 gap-2 font-bold">
+                                <XCircle className="w-4 h-4" /> Cancelar Agendamento
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="bg-card border-border">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Cancelar agendamento?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Você está prestes a cancelar seu agendamento para <strong>{app.service_name}</strong> em <strong>{format(new Date(app.date_time), "dd/MM 'às' HH:mm")}</strong>.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Voltar</AlertDialogCancel>
+                                <AlertDialogAction 
+                                  onClick={() => cancelMutation.mutate(app.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  {cancelMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                                  Confirmar Cancelamento
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
