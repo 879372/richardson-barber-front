@@ -10,7 +10,8 @@ import {
   Phone,
   History,
   CalendarDays,
-  Loader2
+  Loader2,
+  User as UserIcon
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ type Appointment = {
   id: number;
   client_name: string;
   barber_name: string;
+  barber_phone: string;
   service_name: string;
   date_time: string;
   status: string;
@@ -189,10 +191,25 @@ export default function MyAppointments() {
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="font-bold text-foreground">R$ {app.total_price}</span>
+                        <span className="flex items-center gap-1"><UserIcon className="w-3 h-3" /> {app.barber_name}</span>
                       </div>
                       
                       {filter === 'active' && (app.status === 'confirmed' || app.status === 'pending') && (
-                        <div className="pt-2 border-t border-border/30 mt-2">
+                        <div className="pt-2 border-t border-border/30 mt-2 space-y-2">
+                          <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            className="w-full bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] border-none gap-2 font-bold"
+                            onClick={() => {
+                              const msg = `Olá! Tenho um agendamento de ${app.service_name} no dia ${format(new Date(app.date_time), "dd/MM 'às' HH:mm")}.`;
+                              const cleanPhone = app.barber_phone?.replace(/\D/g, '') || '';
+                              const finalPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                              window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+                            }}
+                          >
+                            <Phone className="w-4 h-4" /> Falar com o Barbeiro
+                          </Button>
+
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button variant="outline" size="sm" className="w-full text-destructive hover:bg-destructive/10 border-destructive/20 gap-2 font-bold">

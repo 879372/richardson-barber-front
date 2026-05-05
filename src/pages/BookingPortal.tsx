@@ -207,7 +207,9 @@ export default function BookingPortal() {
               className="w-full gap-2 bg-[#25D366] hover:bg-[#25D366]/90 border-none text-white"
               onClick={() => {
                 const msg = `Olá! Acabei de agendar um(a) ${selectedService?.name} para o dia ${format(selectedDate!, "dd/MM")} às ${selectedTime}.`;
-                window.open(`https://wa.me/55${selectedBarber?.phone || '31999999999'}?text=${encodeURIComponent(msg)}`, '_blank');
+                const cleanPhone = selectedBarber?.phone.replace(/\D/g, '') || '';
+                const finalPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
               }}
             >
               Falar com o Barbeiro (WhatsApp)
