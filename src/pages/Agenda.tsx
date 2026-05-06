@@ -30,7 +30,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
+import { Search, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type Appointment = {
   id: number;
@@ -60,8 +64,27 @@ export default function Agenda() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [statusFilter, setStatusFilter] = useState<string>('confirmed');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
+  
+  // New Appointment Form State
+  const [newAppClient, setNewAppClient] = useState<any>(null);
+  const [clientSearch, setClientSearch] = useState('');
+  const [isClientPopoverOpen, setIsClientPopoverOpen] = useState(false);
+  const [newAppService, setNewAppService] = useState<any>(null);
+  const [newAppBarber, setNewAppBarber] = useState<any>(null);
+  const [newAppTime, setNewAppTime] = useState<string>('');
+  const [newAppNotes, setNewAppNotes] = useState<string>('');
+
+  // Quick Create Client State
+  const [quickClient, setQuickClient] = useState({
+    name: '',
+    phone: '',
+    birth_date: ''
+  });
+
   const queryClient = useQueryClient();
 
   const { data: customMethods } = useQuery({
@@ -77,6 +100,84 @@ export default function Agenda() {
     },
     refetchInterval: 300000, // 5 minutes
   });
+  
+  const { data: clients } = useQuery({
+    queryKey: ['clients'],
+    queryFn: async () => (await api.get<any[]>('/users/?role=client')).data,
+    enabled: showNewAppointmentModal
+  });
+
+  const { data: services } = useQuery({
+    queryKey: ['services'],
+    queryFn: async () => (await api.get<any[]>('/services/')).data,
+    enabled: showNewAppointmentModal
+  });
+
+  const { data: barbers } = useQuery({
+    queryKey: ['barbers'],
+    queryFn: async () => (await api.get<any[]>('/users/?role=barber')).data,
+    enabled: showNewAppointmentModal
+  });
+
+  const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
+    queryKey: ['available-times', newAppBarber?.id, selectedDate, newAppService?.id],
+    queryFn: async () => {
+      if (!newAppBarber || !selectedDate || !newAppService) return [];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const res = await api.get<string[]>(`/users/${newAppBarber.id}/available_times/?date=${dateStr}&service_id=${newAppService.id}`);
+      return res.data;
+    },
+    enabled: !!newAppBarber && !!selectedDate && !!newAppService && showNewAppointmentModal,
+  });
+
+  const createAppointmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDate || !newAppTime || !newAppService || !newAppClient || !newAppBarber) return;
+      
+      const [hours, minutes] = newAppTime.split(':');
+      const dateTime = new Date(selectedDate);
+      dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+      return api.post('/appointments/', {
+        client: newAppClient.id,
+        service: newAppService.id,
+        barber: newAppBarber.id,
+        date_time: dateTime.toISOString(),
+        notes: newAppNotes,
+        status: 'confirmed'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowNewAppointmentModal(false);
+      resetNewAppForm();
+      toast.success('Agendamento criado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao criar agendamento. Verifique a disponibilidade.'),
+  });
+
+  const createClientMutation = useMutation({
+    mutationFn: async (data: typeof quickClient) => {
+      return api.post('/users/register_client/', data);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      setNewAppClient(res.data);
+      setShowQuickCreateClient(false);
+      setQuickClient({ name: '', phone: '', birth_date: '' });
+      toast.success('Cliente cadastrado e selecionado!');
+    },
+    onError: () => toast.error('Erro ao cadastrar cliente.'),
+  });
+
+  const resetNewAppForm = () => {
+    setNewAppClient(null);
+    setClientSearch('');
+    setNewAppService(null);
+    setNewAppBarber(null);
+    setNewAppTime('');
+    setNewAppNotes('');
+  };
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
@@ -198,6 +299,16 @@ export default function Agenda() {
               </Select>
             </div>
             <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())}>Hoje</Button>
+            <Button 
+              size="sm" 
+              className="gap-2" 
+              onClick={() => {
+                resetNewAppForm();
+                setShowNewAppointmentModal(true);
+              }}
+            >
+              <Plus className="w-4 h-4" /> Novo Agendamento
+            </Button>
           </div>
         </div>
 
@@ -363,6 +474,241 @@ export default function Agenda() {
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Finalizar Atendimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* New Appointment Modal */}
+      <Dialog open={showNewAppointmentModal} onOpenChange={setShowNewAppointmentModal}>
+        <DialogContent className="bg-card border-border sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Novo Agendamento</DialogTitle>
+            <DialogDescription>
+              Agende um horário para um cliente na data: <strong>{format(selectedDate, "dd/MM/yyyy")}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Client Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Cliente</label>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 text-[10px] text-primary gap-1 font-bold"
+                  onClick={() => setShowQuickCreateClient(true)}
+                >
+                  <Plus className="w-3 h-3" /> NOVO CLIENTE
+                </Button>
+              </div>
+              
+              <Popover open={isClientPopoverOpen} onOpenChange={setIsClientPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isClientPopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {newAppClient
+                      ? `${newAppClient.first_name || newAppClient.username} (${newAppClient.phone || 'Sem fone'})`
+                      : "Selecionar cliente..."}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                  <div className="flex items-center border-b border-border/50 px-3 py-2">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Pesquisar cliente..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {clients?.filter(c => 
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).length === 0 && (
+                      <div className="py-6 text-center text-sm text-muted-foreground">
+                        Nenhum cliente encontrado.
+                      </div>
+                    )}
+                    {clients?.filter(c => 
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).map((client) => (
+                      <div
+                        key={client.id}
+                        className={cn(
+                          "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                          newAppClient?.id === client.id && "bg-accent"
+                        )}
+                        onClick={() => {
+                          setNewAppClient(client);
+                          setIsClientPopoverOpen(false);
+                          setClientSearch('');
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            newAppClient?.id === client.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.first_name || client.username}</span>
+                          <span className="text-[10px] text-muted-foreground">{client.phone || 'Sem fone'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Service Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Serviço</label>
+              <Select 
+                value={newAppService?.id?.toString()} 
+                onValueChange={(val) => setNewAppService(services?.find(s => s.id.toString() === val))}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione o Serviço" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {services?.map(service => (
+                    <SelectItem key={service.id} value={service.id.toString()}>
+                      {service.name} - {formatCurrency(service.price)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Barber Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Profissional</label>
+              <Select 
+                value={newAppBarber?.id?.toString()} 
+                onValueChange={(val) => setNewAppBarber(barbers?.find(b => b.id.toString() === val))}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione o Barbeiro" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {barbers?.map(barber => (
+                    <SelectItem key={barber.id} value={barber.id.toString()}>
+                      {barber.first_name || barber.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Time Selection */}
+            {newAppBarber && newAppService && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Horários Disponíveis</label>
+                {isLoadingTimes ? (
+                  <div className="text-center py-4 text-xs italic">Consultando agenda...</div>
+                ) : availableTimes?.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-destructive bg-destructive/10 rounded-lg">
+                    Nenhum horário disponível para este profissional nesta data.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {availableTimes?.map((time: string) => (
+                      <Button
+                        key={time}
+                        variant={newAppTime === time ? "default" : "outline"}
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => setNewAppTime(time)}
+                      >
+                        {time}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Observações (Opcional)</label>
+              <Textarea 
+                placeholder="Ex: Cliente prefere tal estilo..."
+                value={newAppNotes}
+                onChange={(e) => setNewAppNotes(e.target.value)}
+                className="bg-background border-border/50 min-h-[80px]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewAppointmentModal(false)}>Cancelar</Button>
+            <Button 
+              disabled={!newAppClient || !newAppService || !newAppBarber || !newAppTime || createAppointmentMutation.isPending}
+              onClick={() => createAppointmentMutation.mutate()}
+            >
+              {createAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Criar Agendamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Client Modal */}
+      <Dialog open={showQuickCreateClient} onOpenChange={setShowQuickCreateClient}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cadastrar Novo Cliente</DialogTitle>
+            <DialogDescription>
+              Preencha os dados básicos para o agendamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nome Completo</label>
+              <Input 
+                placeholder="Ex: João Silva" 
+                value={quickClient.name}
+                onChange={(e) => setQuickClient({ ...quickClient, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">WhatsApp</label>
+              <Input 
+                placeholder="(00) 00000-0000" 
+                value={quickClient.phone}
+                onChange={(e) => setQuickClient({ ...quickClient, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Data de Nascimento (Opcional)</label>
+              <Input 
+                type="date" 
+                value={quickClient.birth_date}
+                onChange={(e) => setQuickClient({ ...quickClient, birth_date: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQuickCreateClient(false)}>Cancelar</Button>
+            <Button 
+              disabled={!quickClient.name || !quickClient.phone || createClientMutation.isPending}
+              onClick={() => createClientMutation.mutate(quickClient)}
+            >
+              {createClientMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Cadastrar e Selecionar
             </Button>
           </DialogFooter>
         </DialogContent>

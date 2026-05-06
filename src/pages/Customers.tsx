@@ -16,6 +16,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
 type Customer = {
@@ -53,8 +62,17 @@ const maskPhone = (value: string) => {
 
 export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [notes, setNotes] = useState("");
   const queryClient = useQueryClient();
+
+  // Create Client Form State
+  const [newClient, setNewClient] = useState({
+    name: '',
+    phone: '',
+    birth_date: '',
+    email: ''
+  });
 
   const { data: customers, isLoading } = useQuery({
     queryKey: ['customers'],
@@ -93,6 +111,19 @@ export default function Customers() {
     onError: () => toast.error('Erro ao salvar observações.'),
   });
 
+  const createClientMutation = useMutation({
+    mutationFn: async (data: typeof newClient) => {
+      return api.post('/users/register_client/', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setShowCreateModal(false);
+      setNewClient({ name: '', phone: '', birth_date: '', email: '' });
+      toast.success('Cliente cadastrado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao cadastrar cliente. Verifique os dados.'),
+  });
+
   const handleOpenDetails = (customer: Customer) => {
     setSelectedCustomer(customer);
     setNotes(customer.internal_notes || "");
@@ -113,6 +144,9 @@ export default function Customers() {
           <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
           <p className="text-muted-foreground text-sm">Gerencie a base de clientes e histórico de atendimentos.</p>
         </div>
+        <Button onClick={() => setShowCreateModal(true)} className="gap-2">
+          <User className="w-4 h-4" /> Novo Cliente
+        </Button>
       </div>
 
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -275,6 +309,65 @@ export default function Customers() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Create Client Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo Cliente</DialogTitle>
+            <DialogDescription>
+              Cadastre um novo cliente no sistema.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nome Completo</label>
+              <Input 
+                placeholder="Ex: João Silva" 
+                value={newClient.name}
+                onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">WhatsApp</label>
+              <Input 
+                placeholder="(00) 00000-0000" 
+                value={newClient.phone}
+                onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Data de Nascimento (Opcional)</label>
+              <Input 
+                type="date" 
+                value={newClient.birth_date}
+                onChange={(e) => setNewClient({ ...newClient, birth_date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">E-mail (Opcional)</label>
+              <Input 
+                type="email" 
+                placeholder="email@exemplo.com"
+                value={newClient.email}
+                onChange={(e) => setNewClient({ ...newClient, email: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancelar</Button>
+            <Button 
+              disabled={!newClient.name || !newClient.phone || createClientMutation.isPending}
+              onClick={() => createClientMutation.mutate(newClient)}
+            >
+              {createClientMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Salvar Cliente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
