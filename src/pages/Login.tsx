@@ -30,8 +30,14 @@ export default function Login() {
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     try {
-      // 1. Get token
-      const tokenRes = await api.post('/token/', data);
+      // 1. Convert username to lowercase to make login case-insensitive
+      const loginPayload = {
+        ...data,
+        username: data.username.toLowerCase()
+      };
+
+      // 2. Get token
+      const tokenRes = await api.post('/token/', loginPayload);
       const { access } = tokenRes.data;
 
       // 2. Set token temporarily to fetch user data

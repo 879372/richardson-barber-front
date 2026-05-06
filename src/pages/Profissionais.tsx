@@ -82,7 +82,7 @@ export default function Profissionais() {
     const formData = new FormData(e.currentTarget);
     
     const payload: any = {
-      username: formData.get('username'),
+      username: (formData.get('username') as string)?.toLowerCase(),
       first_name: formData.get('first_name'),
       phone: formData.get('phone'),
     };
