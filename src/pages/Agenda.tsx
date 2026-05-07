@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter } from 'lucide-react';
+import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +35,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { Search, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 type Appointment = {
   id: number;
@@ -77,6 +79,11 @@ export default function Agenda() {
   const [newAppBarber, setNewAppBarber] = useState<any>(null);
   const [newAppTime, setNewAppTime] = useState<string>('');
   const [newAppNotes, setNewAppNotes] = useState<string>('');
+
+  // Recurrence State
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceType, setRecurrenceType] = useState('weekly');
+  const [recurrenceCount, setRecurrenceCount] = useState(4);
 
   // Quick Create Client State
   const [quickClient, setQuickClient] = useState({
@@ -130,30 +137,109 @@ export default function Agenda() {
     enabled: !!newAppBarber && !!selectedDate && !!newAppService && showNewAppointmentModal,
   });
 
+  const [customDates, setCustomDates] = useState<Date[]>([]);
+  const [unavailableDates, setUnavailableDates] = useState<string[]>([]);
+
+  const checkDatesAvailability = async (dates: Date[]) => {
+    if (!newAppBarber || !newAppService || !newAppTime || dates.length === 0) return;
+    
+    try {
+      const dateStrings = dates.map(d => format(d, 'yyyy-MM-dd'));
+      const res = await api.post('/appointments/check_availability/', {
+        barber_id: newAppBarber.id,
+        service_id: newAppService.id,
+        time: newAppTime,
+        dates: dateStrings
+      });
+      
+      const unavailable = res.data
+        .filter((r: any) => !r.available)
+        .map((r: any) => r.date);
+        
+      setUnavailableDates(unavailable);
+    } catch (error) {
+      console.error("Erro ao verificar disponibilidade das datas", error);
+    }
+  };
+
+  const getRecurrenceDates = () => {
+    if (!selectedDate || !newAppTime) return [];
+    
+    if (recurrenceType === 'custom') {
+      return customDates.map(d => {
+        const [hours, minutes] = newAppTime.split(':');
+        const dateTime = new Date(d);
+        dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return dateTime;
+      });
+    }
+
+    const [hours, minutes] = newAppTime.split(':');
+    const dates = [];
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    for (let i = 0; i < recurrenceCount; i++) {
+      const d = new Date(baseDate);
+      if (recurrenceType === 'weekly') {
+        d.setDate(d.getDate() + (i * 7));
+      } else if (recurrenceType === 'biweekly') {
+        d.setDate(d.getDate() + (i * 14));
+      } else if (recurrenceType === 'monthly') {
+        d.setMonth(d.getMonth() + i);
+      } else if (recurrenceType === 'daily') {
+        d.setDate(d.getDate() + i);
+      }
+      dates.push(d);
+    }
+    return dates;
+  };
+
   const createAppointmentMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDate || !newAppTime || !newAppService || !newAppClient || !newAppBarber) return;
       
-      const [hours, minutes] = newAppTime.split(':');
-      const dateTime = new Date(selectedDate);
-      dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      const datesToCreate = isRecurring ? getRecurrenceDates() : [
+        (() => {
+          const [hours, minutes] = newAppTime.split(':');
+          const dateTime = new Date(selectedDate);
+          dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          return dateTime;
+        })()
+      ];
 
-      return api.post('/appointments/', {
-        client: newAppClient.id,
-        service: newAppService.id,
-        barber: newAppBarber.id,
-        date_time: dateTime.toISOString(),
-        notes: newAppNotes,
-        status: 'confirmed'
+      const promises = datesToCreate.map(dateTime => {
+        let recurrenceNote = '';
+        if (isRecurring) {
+          const typeMap: Record<string, string> = {
+            'daily': 'Diária',
+            'weekly': 'Semanal',
+            'biweekly': 'Quinzenal',
+            'monthly': 'Mensal',
+            'custom': 'Datas Selecionadas'
+          };
+          recurrenceNote = ` (Recorrente ${typeMap[recurrenceType] || ''})`;
+        }
+
+        return api.post('/appointments/', {
+          client: newAppClient.id,
+          service: newAppService.id,
+          barber: newAppBarber.id,
+          date_time: dateTime.toISOString(),
+          notes: (newAppNotes ? newAppNotes + recurrenceNote : recurrenceNote.trim()),
+          status: 'confirmed'
+        });
       });
+
+      return Promise.all(promises);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowNewAppointmentModal(false);
       resetNewAppForm();
-      toast.success('Agendamento criado com sucesso!');
+      toast.success(isRecurring ? 'Agendamentos recorrentes criados com sucesso!' : 'Agendamento criado com sucesso!');
     },
-    onError: () => toast.error('Erro ao criar agendamento. Verifique a disponibilidade.'),
+    onError: () => toast.error('Erro ao criar agendamento(s). Verifique a disponibilidade.'),
   });
 
   const createClientMutation = useMutation({
@@ -177,6 +263,10 @@ export default function Agenda() {
     setNewAppBarber(null);
     setNewAppTime('');
     setNewAppNotes('');
+    setIsRecurring(false);
+    setRecurrenceType('weekly');
+    setRecurrenceCount(4);
+    setCustomDates([]);
   };
 
   const updateStatusMutation = useMutation({
@@ -649,6 +739,108 @@ export default function Agenda() {
                 className="bg-background border-border/50 min-h-[80px]"
               />
             </div>
+
+            {/* Recurrence Section */}
+            {newAppTime && (
+              <div className="space-y-3 p-4 bg-primary/5 rounded-xl border border-primary/20 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="w-5 h-5 text-primary" />
+                    <Label className="font-semibold text-primary text-base cursor-pointer" onClick={() => setIsRecurring(!isRecurring)}>Agendamento Recorrente?</Label>
+                  </div>
+                  <Switch 
+                    checked={isRecurring} 
+                    onCheckedChange={setIsRecurring} 
+                  />
+                </div>
+                
+                {isRecurring && (
+                  <div className="pt-4 border-t border-primary/10 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Frequência</Label>
+                      <Select value={recurrenceType} onValueChange={setRecurrenceType}>
+                        <SelectTrigger className="h-9 text-sm bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Todos os dias</SelectItem>
+                          <SelectItem value="weekly">Semanal (7 dias)</SelectItem>
+                          <SelectItem value="biweekly">Quinzenal (15 dias)</SelectItem>
+                          <SelectItem value="monthly">Mensal</SelectItem>
+                          <SelectItem value="custom">Personalizado (Calendário)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {recurrenceType === 'custom' ? (
+                      <div className="col-span-2 space-y-2 border-t border-primary/10 pt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-xs font-semibold">Clique nas datas desejadas:</Label>
+                          <Badge variant="outline" className="text-[10px] py-0 h-5 text-muted-foreground border-dashed">
+                            Cinza = Indisponível
+                          </Badge>
+                        </div>
+                        <div className="bg-background rounded-lg border border-border/50 p-2 flex justify-center">
+                          <Calendar
+                            mode="multiple"
+                            selected={customDates}
+                            onSelect={(dates) => setCustomDates(dates || [])}
+                            disabled={(date) => {
+                              const dStr = format(date, 'yyyy-MM-dd');
+                              // Check if date is in the past
+                              if (date < new Date(new Date().setHours(0,0,0,0))) return true;
+                              return unavailableDates.includes(dStr);
+                            }}
+                            onDayClick={(day) => {
+                              // Trigger availability check for the month or a range when user interacts
+                              const start = new Date(day.getFullYear(), day.getMonth(), 1);
+                              const end = new Date(day.getFullYear(), day.getMonth() + 1, 0);
+                              const daysInMonth = [];
+                              for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                                daysInMonth.push(new Date(d));
+                              }
+                              checkDatesAvailability(daysInMonth);
+                            }}
+                            className="p-0"
+                            locale={ptBR}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Total de vezes</Label>
+                        <Select value={recurrenceCount.toString()} onValueChange={(v) => setRecurrenceCount(parseInt(v))}>
+                          <SelectTrigger className="h-9 text-sm bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[2, 3, 4, 5, 6, 8, 10, 12, 24].map(num => (
+                              <SelectItem key={num} value={num.toString()}>{num} vezes</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    
+                    <div className="col-span-2 mt-2 bg-background/50 p-3 rounded-lg border border-border/50">
+                      <Label className="text-xs text-muted-foreground mb-2 block">
+                        {recurrenceType === 'custom' ? `Agendamentos para estas ${customDates.length} datas:` : 'Pré-visualização das datas:'}
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {getRecurrenceDates().map((date, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs font-medium bg-primary/10 text-primary border-none hover:bg-primary/20">
+                            {format(date, "dd/MM")}
+                          </Badge>
+                        ))}
+                        {recurrenceType === 'custom' && customDates.length === 0 && (
+                          <span className="text-[10px] italic text-muted-foreground">Nenhuma data selecionada no calendário acima.</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>

@@ -98,6 +98,16 @@ export default function BookingPortal() {
     enabled: !!selectedBarber && !!selectedDate && !!selectedService,
   });
 
+  const { data: barberWorkingHours } = useQuery({
+    queryKey: ['barber-working-hours', selectedBarber?.id],
+    queryFn: async () => {
+      if (!selectedBarber) return [];
+      const res = await api.get(`/working-hours/?barber=${selectedBarber.id}`);
+      return res.data;
+    },
+    enabled: !!selectedBarber,
+  });
+
   const bookMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDate || !selectedTime || !selectedService || !selectedBarber) return;
@@ -447,7 +457,26 @@ export default function BookingPortal() {
                       mode="single"
                       selected={selectedDate}
                       onSelect={setSelectedDate}
-                      disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
+                      disabled={(date) => {
+                        // 1. Disable past dates
+                        if (date < new Date(new Date().setHours(0,0,0,0))) return true;
+                        
+                        // 2. Disable days where the barber is closed
+                        if (barberWorkingHours && selectedBarber) {
+                          const dayOfWeek = date.getDay();
+                          // Adjust JS day (0=Sun) to match Django (0=Mon) if necessary, 
+                          // but let's check what backend uses. Backend: 0=Mon, 1=Tue... 6=Sun.
+                          // JS: 0=Sun, 1=Mon... 6=Sat.
+                          const djangoDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                          
+                          const isWorking = barberWorkingHours.some(
+                            (wh: any) => wh.day_of_week === djangoDay && wh.is_active
+                          );
+                          return !isWorking;
+                        }
+                        
+                        return false;
+                      }}
                       className="rounded-md"
                       locale={ptBR}
                     />
