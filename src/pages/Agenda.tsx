@@ -244,7 +244,8 @@ export default function Agenda() {
           barber: newAppBarber.id,
           date_time: dateTime.toISOString(),
           notes: (newAppNotes ? newAppNotes + recurrenceNote : recurrenceNote.trim()),
-          status: 'confirmed'
+          status: 'confirmed',
+          total_price: newAppService.price
         });
       });
 
