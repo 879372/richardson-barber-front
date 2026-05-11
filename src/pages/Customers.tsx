@@ -75,11 +75,7 @@ const dateToBackend = (dateStr: string) => {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
 
-const dateToFrontend = (dateStr: string) => {
-  if (!dateStr || !dateStr.includes('-')) return dateStr;
-  const [year, month, day] = dateStr.split('-');
-  return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
-};
+
 
 export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
