@@ -628,7 +628,7 @@ export default function Agenda() {
                     <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" sideOffset={4} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
                   <div className="flex items-center border-b border-border/50 px-3 py-2">
                     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                     <input
