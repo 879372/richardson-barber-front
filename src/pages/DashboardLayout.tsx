@@ -72,7 +72,7 @@ export default function DashboardLayout() {
   );
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-[100dvh] bg-background overflow-hidden">
       {/* Sidebar for Desktop */}
       <aside className="w-64 bg-card border-r border-border hidden md:flex flex-col">
         <SidebarContent />
