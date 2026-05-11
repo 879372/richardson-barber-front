@@ -71,9 +71,9 @@ const maskDate = (v: string) => {
 };
 
 const dateToBackend = (dateStr: string) => {
-  if (!dateStr || !dateStr.includes('/')) return dateStr;
+  if (!dateStr || !dateStr.includes('/')) return dateStr || null;
   const [day, month, year] = dateStr.split('/');
-  if (!day || !month || !year || year.length < 4) return dateStr;
+  if (!day || !month || !year || year.length < 4) return dateStr || null;
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
 
