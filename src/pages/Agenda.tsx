@@ -77,6 +77,14 @@ const dateToBackend = (dateStr: string) => {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
 
+const maskPhone = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  v = v.replace(/^(\d{2})(\d)/g, "($1) $2");
+  v = v.replace(/(\d)(\d{4})$/, "$1-$2");
+  return v;
+};
+
 
 
 export default function Agenda() {
@@ -887,27 +895,33 @@ export default function Agenda() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nome Completo</label>
+              <Label>Nome Completo</Label>
               <Input 
                 placeholder="Ex: João Silva" 
+                className="bg-background border-border/50 h-11"
                 value={quickClient.name}
                 onChange={(e) => setQuickClient({ ...quickClient, name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">WhatsApp</label>
+              <Label>WhatsApp</Label>
               <Input 
                 placeholder="(00) 00000-0000" 
+                className="bg-background border-border/50 h-11"
                 value={quickClient.phone}
-                onChange={(e) => setQuickClient({ ...quickClient, phone: e.target.value })}
+                onChange={(e) => setQuickClient({ ...quickClient, phone: maskPhone(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Data de Nascimento (Opcional)</label>
+              <Label className="flex justify-between">
+                Data de Nascimento
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Opcional</span>
+              </Label>
               <Input 
                 placeholder="DD/MM/AAAA"
+                className="bg-background border-border/50 h-11"
                 value={quickClient.birth_date}
                 onChange={(e) => setQuickClient({ ...quickClient, birth_date: maskDate(e.target.value) })}
                 inputMode="numeric"

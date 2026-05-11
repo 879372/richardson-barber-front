@@ -25,6 +25,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from "@/components/ui/label";
 import { toast } from 'sonner';
 
 type Customer = {
@@ -47,24 +48,20 @@ type Appointment = {
   total_price: string;
 };
 
-const maskPhone = (value: string) => {
-  if (!value) return "N/A";
-  value = value.replace(/\D/g, "");
-  if (value.length <= 10) {
-    value = value.replace(/^(\d{2})(\d)/g, "($1) $2");
-    value = value.replace(/(\d)(\d{4})$/, "$1-$2");
-  } else {
-    value = value.replace(/^(\d{2})(\d)/g, "($1) $2");
-    value = value.replace(/(\d)(\d{4})$/, "$1-$2");
-  }
-  return value;
-};
-
 const maskDate = (v: string) => {
   v = v.replace(/\D/g, "");
   if (v.length > 8) v = v.slice(0, 8);
-  if (v.length > 2) v = v.replace(/^(\d{2})(\d)/g, "$1/$2");
-  if (v.length > 5) v = v.replace(/^(\d{2})\/(\d{2})(\d)/g, "$1/$2/$3");
+  v = v.replace(/^(\d{2})(\d)/, "$1/$2");
+  v = v.replace(/^(\d{2})\/(\d{2})(\d)/, "$1/$2/$3");
+  return v;
+};
+
+const maskPhone = (v: string) => {
+  if (!v) return "";
+  v = v.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  v = v.replace(/^(\d{2})(\d)/g, "($1) $2");
+  v = v.replace(/(\d)(\d{4})$/, "$1-$2");
   return v;
 };
 
@@ -74,8 +71,6 @@ const dateToBackend = (dateStr: string) => {
   if (!day || !month || !year || year.length < 4) return dateStr;
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
-
-
 
 export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -129,11 +124,17 @@ export default function Customers() {
   });
 
   const createClientMutation = useMutation({
-    mutationFn: async (data: typeof newClient) => {
-      return api.post('/users/register_client/', {
-        ...data,
-        birth_date: dateToBackend(data.birth_date)
-      });
+    mutationFn: async (client: any) => {
+      const payload = {
+        username: client.phone.replace(/\D/g, ""),
+        first_name: client.name,
+        phone: client.phone.replace(/\D/g, ""),
+        email: client.email || `${client.phone.replace(/\D/g, "")}@barber.com`,
+        birth_date: dateToBackend(client.birth_date),
+        role: 'client'
+      };
+      const res = await api.post('/users/', payload);
+      return res.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -340,37 +341,47 @@ export default function Customers() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nome Completo</label>
+              <Label>Nome Completo</Label>
               <Input 
                 placeholder="Ex: João Silva" 
+                className="bg-background border-border/50 h-11"
                 value={newClient.name}
                 onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">WhatsApp</label>
+              <Label>WhatsApp</Label>
               <Input 
                 placeholder="(00) 00000-0000" 
+                className="bg-background border-border/50 h-11"
                 value={newClient.phone}
-                onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })}
+                onChange={(e) => setNewClient({ ...newClient, phone: maskPhone(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Data de Nascimento (Opcional)</label>
+              <Label className="flex justify-between">
+                Data de Nascimento
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Opcional</span>
+              </Label>
               <Input 
                 placeholder="DD/MM/AAAA"
+                className="bg-background border-border/50 h-11"
                 value={newClient.birth_date}
                 onChange={(e) => setNewClient({ ...newClient, birth_date: maskDate(e.target.value) })}
                 inputMode="numeric"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">E-mail (Opcional)</label>
+              <Label className="flex justify-between">
+                E-mail
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Opcional</span>
+              </Label>
               <Input 
-                type="email" 
-                placeholder="email@exemplo.com"
+                type="email"
+                placeholder="email@exemplo.com" 
+                className="bg-background border-border/50 h-11"
                 value={newClient.email}
                 onChange={(e) => setNewClient({ ...newClient, email: e.target.value })}
               />
