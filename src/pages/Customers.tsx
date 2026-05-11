@@ -60,6 +60,27 @@ const maskPhone = (value: string) => {
   return value;
 };
 
+const maskDate = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 8) v = v.slice(0, 8);
+  if (v.length > 2) v = v.replace(/^(\d{2})(\d)/g, "$1/$2");
+  if (v.length > 5) v = v.replace(/^(\d{2})\/(\d{2})(\d)/g, "$1/$2/$3");
+  return v;
+};
+
+const dateToBackend = (dateStr: string) => {
+  if (!dateStr || !dateStr.includes('/')) return dateStr;
+  const [day, month, year] = dateStr.split('/');
+  if (!day || !month || !year || year.length < 4) return dateStr;
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+};
+
+const dateToFrontend = (dateStr: string) => {
+  if (!dateStr || !dateStr.includes('-')) return dateStr;
+  const [year, month, day] = dateStr.split('-');
+  return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+};
+
 export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -113,7 +134,10 @@ export default function Customers() {
 
   const createClientMutation = useMutation({
     mutationFn: async (data: typeof newClient) => {
-      return api.post('/users/register_client/', data);
+      return api.post('/users/register_client/', {
+        ...data,
+        birth_date: dateToBackend(data.birth_date)
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -340,9 +364,10 @@ export default function Customers() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Data de Nascimento (Opcional)</label>
               <Input 
-                type="date" 
+                placeholder="DD/MM/AAAA"
                 value={newClient.birth_date}
-                onChange={(e) => setNewClient({ ...newClient, birth_date: e.target.value })}
+                onChange={(e) => setNewClient({ ...newClient, birth_date: maskDate(e.target.value) })}
+                inputMode="numeric"
               />
             </div>
             <div className="space-y-2">
