@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { api } from '@/lib/api';
+import { api, publicApi } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -54,7 +54,7 @@ export default function BookingPortal() {
   const { data: userActiveAppointments } = useQuery({
     queryKey: ['user-active-appointments', phone.replace(/\D/g, '')],
     queryFn: async () => {
-      const res = await api.get(`/appointments/public_list/?phone=${phone.replace(/\D/g, '')}`);
+      const res = await publicApi.get(`/appointments/public_list/?phone=${phone.replace(/\D/g, '')}`);
       // Filter only active/upcoming
       return res.data.filter((app: any) => {
         const appDate = new Date(app.date_time);
@@ -74,7 +74,7 @@ export default function BookingPortal() {
   const { data: services, isLoading: isLoadingServices } = useQuery({
     queryKey: ['services'],
     queryFn: async () => {
-      const res = await api.get<Service[]>('/services/');
+      const res = await publicApi.get<Service[]>('/services/');
       return res.data;
     }
   });
@@ -82,7 +82,7 @@ export default function BookingPortal() {
   const { data: barbers, isLoading: isLoadingBarbers } = useQuery({
     queryKey: ['barbers'],
     queryFn: async () => {
-      const res = await api.get<Barber[]>('/users/?role=barber');
+      const res = await publicApi.get<Barber[]>('/users/?role=barber');
       return res.data;
     }
   });
@@ -92,7 +92,7 @@ export default function BookingPortal() {
     queryFn: async () => {
       if (!selectedBarber || !selectedDate || !selectedService) return [];
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      const res = await api.get<string[]>(`/users/${selectedBarber.id}/available_times/?date=${dateStr}&service_id=${selectedService.id}`);
+      const res = await publicApi.get<string[]>(`/users/${selectedBarber.id}/available_times/?date=${dateStr}&service_id=${selectedService.id}`);
       return res.data;
     },
     enabled: !!selectedBarber && !!selectedDate && !!selectedService,
@@ -102,7 +102,7 @@ export default function BookingPortal() {
     queryKey: ['barber-working-hours', selectedBarber?.id],
     queryFn: async () => {
       if (!selectedBarber) return [];
-      const res = await api.get(`/working-hours/?barber=${selectedBarber.id}`);
+      const res = await publicApi.get(`/working-hours/?barber=${selectedBarber.id}`);
       return res.data;
     },
     enabled: !!selectedBarber,
@@ -116,7 +116,7 @@ export default function BookingPortal() {
       const dateTime = new Date(selectedDate);
       dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      return api.post('/appointments/public_booking/', {
+      return publicApi.post('/appointments/public_booking/', {
         name,
         phone,
         birth_date: dateToBackend(birthDate),
@@ -138,7 +138,7 @@ export default function BookingPortal() {
 
   const registerMutation = useMutation({
     mutationFn: async () => {
-      return api.post('/users/register_client/', {
+      return publicApi.post('/users/register_client/', {
         name,
         phone,
         birth_date: dateToBackend(birthDate)
@@ -150,7 +150,7 @@ export default function BookingPortal() {
     if (!phone) return;
     setIsCheckingPhone(true);
     try {
-      const res = await api.get(`/users/check_phone/?phone=${phone}`);
+      const res = await publicApi.get(`/users/check_phone/?phone=${phone}`);
       if (res.data.exists) {
         setName(res.data.user.first_name || '');
         setBirthDate(dateToFrontend(res.data.user.birth_date) || '');
@@ -163,8 +163,10 @@ export default function BookingPortal() {
         setPhoneExists(false);
       }
       setIsPhoneChecked(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      const msg = error.response?.data?.error || 'Erro ao consultar telefone. Tente novamente.';
+      toast.error(msg);
     } finally {
       setIsCheckingPhone(false);
     }

@@ -14,3 +14,10 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+export const publicApi = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8002/api/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});

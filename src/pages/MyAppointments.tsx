@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, publicApi } from '@/lib/api';
 import { format, isAfter, isBefore } from 'date-fns';
 import { 
   ChevronLeft, 
@@ -70,7 +70,7 @@ export default function MyAppointments() {
     queryKey: ['my-appointments', phoneParam],
     queryFn: async () => {
       if (!phoneParam) return [];
-      const res = await api.get<Appointment[]>(`/appointments/public_list/?phone=${phoneParam}`);
+      const res = await publicApi.get<Appointment[]>(`/appointments/public_list/?phone=${phoneParam}`);
       return res.data;
     },
     enabled: !!phoneParam
@@ -80,7 +80,7 @@ export default function MyAppointments() {
   
   const cancelMutation = useMutation({
     mutationFn: async (id: number) => {
-      return api.post(`/appointments/${id}/public_cancel/`);
+      return publicApi.post(`/appointments/${id}/public_cancel/`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-appointments'] });
