@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, ChevronLeft, ChevronRight, Scissors } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, ChevronLeft, ChevronRight, Scissors, ChevronDown, User, Package } from 'lucide-react';
 import { format, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -18,7 +18,18 @@ type FinancialSummary = {
   product_revenue: number;
   total_expenses: number;
   net_profit: number;
-  method_summary: { method: string; total_amount: number; count: number }[];
+  method_summary: { 
+    method: string; 
+    total_amount: number; 
+    count: number;
+    details: {
+      type: 'service' | 'product';
+      client: string;
+      description: string;
+      amount: number;
+      date: string;
+    }[]
+  }[];
   expenses: any[];
 };
 
@@ -49,6 +60,7 @@ export default function Financeiro() {
   const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
   
   // Form state
   const [desc, setDesc] = useState('');
@@ -229,15 +241,46 @@ export default function Financeiro() {
               <div className="text-center py-10 text-muted-foreground italic">Nenhuma receita para este período.</div>
             ) : (
               summary?.method_summary.map((m, i) => (
-                <div key={i} className="flex items-center gap-4 p-3 rounded-xl hover:bg-primary/5 transition-colors group">
-                  <div className={`w-2 h-10 rounded-full ${methodColors[m.method] || 'bg-slate-400'} print:bg-gray-300`} />
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-sm">{methodLabels[m.method] || m.method}</span>
-                      <span className="font-semibold text-lg">{formatCurrency(m.total_amount)}</span>
+                <div key={i} className="flex flex-col border border-border/50 rounded-2xl overflow-hidden">
+                  <button 
+                    onClick={() => setExpandedMethod(expandedMethod === m.method ? null : m.method)}
+                    className="flex items-center gap-4 p-4 hover:bg-primary/5 transition-colors group w-full text-left"
+                  >
+                    <div className={`w-2 h-10 rounded-full ${methodColors[m.method] || 'bg-slate-400'} print:bg-gray-300`} />
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm">{methodLabels[m.method] || m.method}</span>
+                        <span className="font-semibold text-lg">{formatCurrency(m.total_amount)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{m.count} lançamentos</div>
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${expandedMethod === m.method ? 'rotate-180' : ''}`} />
+                      </div>
                     </div>
-                    <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{m.count} agendamentos</div>
-                  </div>
+                  </button>
+                  
+                  {expandedMethod === m.method && (
+                    <div className="bg-muted/30 border-t border-border/50 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="p-2 space-y-1">
+                        {m.details.map((detail, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-card/50 border border-border/30">
+                            <div className="flex items-center gap-3">
+                              <div className="p-1.5 rounded-md bg-background border border-border/50">
+                                {detail.type === 'service' ? <User className="w-3 h-3 text-blue-500" /> : <Package className="w-3 h-3 text-amber-500" />}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{detail.description}</span>
+                                <span className="text-[10px] text-muted-foreground">{detail.client} • {format(new Date(detail.date), 'dd/MM HH:mm')}</span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-bold text-foreground">
+                              {formatCurrency(detail.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}

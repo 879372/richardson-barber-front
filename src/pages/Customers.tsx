@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { User, Phone, Calendar, History, Loader2, Save, MessageSquare } from 'lucide-react';
+import { User, Phone, Calendar, History, Loader2, Save, MessageSquare, Search } from 'lucide-react';
 import { 
   Sheet, 
   SheetContent, 
@@ -78,6 +78,8 @@ export default function Customers() {
   const [notes, setNotes] = useState("");
   const queryClient = useQueryClient();
 
+  const [searchTerm, setSearchTerm] = useState("");
+  
   // Create Client Form State
   const [newClient, setNewClient] = useState({
     name: '',
@@ -171,8 +173,17 @@ export default function Customers() {
       </div>
 
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-        <CardHeader>
+        <CardHeader className="flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
           <CardTitle>Lista de Clientes</CardTitle>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input 
+              placeholder="Buscar por nome ou telefone..." 
+              className="pl-9 bg-background border-border/50 h-9"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -189,14 +200,24 @@ export default function Customers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {customers?.length === 0 ? (
+                {customers?.filter(c => {
+                    const search = searchTerm.toLowerCase();
+                    return (c.first_name || '').toLowerCase().includes(search) ||
+                           (c.username || '').toLowerCase().includes(search) ||
+                           (c.phone || '').includes(search);
+                  }).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                      Nenhum cliente cadastrado.
+                      {searchTerm ? "Nenhum cliente encontrado para esta busca." : "Nenhum cliente cadastrado."}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  customers?.map((customer) => (
+                  customers?.filter(c => {
+                    const search = searchTerm.toLowerCase();
+                    return (c.first_name || '').toLowerCase().includes(search) ||
+                           (c.username || '').toLowerCase().includes(search) ||
+                           (c.phone || '').includes(search);
+                  }).map((customer) => (
                     <TableRow key={customer.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
