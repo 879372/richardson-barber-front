@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, publicApi } from '@/lib/api';
+import { publicApi } from '@/lib/api';
 import { format, isAfter, isBefore } from 'date-fns';
 import { 
   ChevronLeft, 

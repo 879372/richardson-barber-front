@@ -384,18 +384,18 @@ export default function Agenda() {
 
       {/* Appointments List */}
       <div className="flex-1 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
               Agenda: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
             </h2>
             <p className="text-sm text-muted-foreground">Gerencie os horários e atendimentos.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 sm:flex-none min-w-[140px]">
               <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[180px] pl-9 bg-background border-border/50">
+                <SelectTrigger className="w-full sm:w-[180px] pl-9 bg-background border-border/50">
                   <SelectValue placeholder="Filtrar Status" />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border">
@@ -408,16 +408,16 @@ export default function Agenda() {
                 </SelectContent>
               </Select>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())}>Hoje</Button>
+            <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())} className="h-10 sm:h-9">Hoje</Button>
             <Button 
               size="sm" 
-              className="gap-2" 
+              className="gap-2 h-10 sm:h-9 flex-1 sm:flex-none" 
               onClick={() => {
                 resetNewAppForm();
                 setShowNewAppointmentModal(true);
               }}
             >
-              <Plus className="w-4 h-4" /> Novo Agendamento
+              <Plus className="w-4 h-4" /> <span className="whitespace-nowrap">Novo Agendamento</span>
             </Button>
           </div>
         </div>
