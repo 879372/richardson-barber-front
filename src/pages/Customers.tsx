@@ -46,6 +46,7 @@ type Appointment = {
   date_time: string;
   status: string;
   total_price: string;
+  notes?: string;
 };
 
 const maskDate = (v: string) => {
@@ -145,6 +146,28 @@ export default function Customers() {
       toast.success('Cliente cadastrado com sucesso!');
     },
     onError: () => toast.error('Erro ao cadastrar cliente. Verifique os dados.'),
+  });
+
+  const cancelRecurringMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/cancel_recurring/`);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-history'] });
+      toast.success(res.data.status || 'Agendamentos recorrentes cancelados!');
+    },
+    onError: () => toast.error('Erro ao cancelar agendamentos recorrentes.'),
+  });
+
+  const cancelSingleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.patch(`/appointments/${id}/`, { status: 'cancelled' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-history'] });
+      toast.success('Agendamento cancelado com sucesso.');
+    },
+    onError: () => toast.error('Erro ao cancelar agendamento.'),
   });
 
   const handleOpenDetails = (customer: Customer) => {
@@ -341,7 +364,31 @@ export default function Customers() {
                       </div>
                       <div className="flex justify-between items-center text-xs text-muted-foreground">
                         <span className="font-medium">{format(new Date(app.date_time), "dd/MM/yyyy HH:mm", { locale: ptBR })}</span>
-                        <span className="font-medium text-foreground">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(app.total_price))}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(app.total_price))}</span>
+                          {(app.status === 'confirmed' || app.status === 'pending') && (
+                            <div className="flex gap-1 ml-2 border-l border-border/50 pl-2">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-[10px] text-destructive hover:text-destructive hover:bg-destructive/10 font-bold"
+                                onClick={() => cancelSingleMutation.mutate(app.id)}
+                              >
+                                Cancelar
+                              </Button>
+                              {app.notes?.includes('Recorrente') && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-6 px-2 text-[10px] text-destructive hover:text-destructive hover:bg-destructive/10 font-black"
+                                  onClick={() => cancelRecurringMutation.mutate(app.id)}
+                                >
+                                  Toda Série
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
