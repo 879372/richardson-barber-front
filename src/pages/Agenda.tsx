@@ -857,7 +857,7 @@ export default function Agenda() {
                           )}
                         </div>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" side="right" className="bg-card border-border w-48 z-50">
+                      <DropdownMenuContent align="center" side="bottom" className="bg-card border-border w-48 z-50">
                         {isApp ? (
                           <>
                             <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
