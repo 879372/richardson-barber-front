@@ -200,7 +200,6 @@ export default function Agenda() {
   const { data: services } = useQuery({
     queryKey: ['services'],
     queryFn: async () => (await api.get<any[]>('/services/')).data,
-    enabled: showNewAppointmentModal || showWalkInModal
   });
 
   const { data: barbers } = useQuery({
