@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
+import { User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +50,9 @@ type Appointment = {
   id: number;
   client: number;
   client_name: string;
+  barber?: number | any;
   barber_name: string;
+  service?: number | any;
   service_name: string;
   date_time: string;
   status: string;
@@ -63,7 +65,7 @@ type TimeBlock = {
   start_time: string;
   end_time: string;
   reason: string;
-  barber: number;
+  barber: number | any;
   barber_name?: string;
 };
 
@@ -107,7 +109,7 @@ const maskPhone = (v: string) => {
 
 export default function Agenda() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [statusFilter, setStatusFilter] = useState<string>('confirmed');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
   const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
@@ -129,6 +131,9 @@ export default function Agenda() {
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
   const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0' }]);
   
+  // Timeline State
+  const [timelineBarberId, setTimelineBarberId] = useState<string | null>(null);
+
   // New Appointment Form State
   const [newAppClient, setNewAppClient] = useState<any>(null);
   const [clientSearch, setClientSearch] = useState('');
@@ -191,12 +196,26 @@ export default function Agenda() {
   const { data: barbers } = useQuery({
     queryKey: ['barbers'],
     queryFn: async () => (await api.get<any[]>('/users/?role=barber')).data,
-    enabled: showNewAppointmentModal || showBlockModal || showWalkInModal
   });
 
   const { data: me } = useQuery({
     queryKey: ['me'],
     queryFn: async () => (await api.get('/users/me/')).data
+  });
+
+  useEffect(() => {
+    if (me && !timelineBarberId) {
+      if (me.role === 'barber') {
+        setTimelineBarberId(me.id.toString());
+      } else if (barbers && barbers.length > 0) {
+        setTimelineBarberId(barbers[0].id.toString());
+      }
+    }
+  }, [me, barbers, timelineBarberId]);
+
+  const { data: workingHours } = useQuery({
+    queryKey: ['working-hours'],
+    queryFn: async () => (await api.get<any[]>('/working-hours/')).data,
   });
 
   const { data: timeBlocks, isLoading: isLoadingBlocks } = useQuery({
@@ -500,6 +519,42 @@ export default function Agenda() {
     return app.status === statusFilter;
   }).sort((a, b) => a.date_time.localeCompare(b.date_time));
 
+  const getTimelineBounds = () => {
+    const dayOfWeek = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1; // Backend: 0=Mon
+    const barberId = parseInt(timelineBarberId || '0');
+    const wh = workingHours?.find(w => w.barber === barberId && w.day_of_week === dayOfWeek && w.is_active);
+    
+    let startHour = 8;
+    let endHour = 20;
+
+    if (wh) {
+      startHour = parseInt(wh.start_time.split(':')[0]);
+      endHour = parseInt(wh.end_time.split(':')[0]);
+      endHour = Math.min(23, endHour + 1);
+    }
+
+    const timelineHours = [];
+    for (let i = startHour; i <= endHour; i++) {
+      timelineHours.push(i);
+    }
+    return { startHour, endHour, timelineHours };
+  };
+
+  const { startHour, timelineHours } = getTimelineBounds();
+
+  const timelineItems = [
+    ...(filteredAppointments?.filter(a => {
+      const bId = typeof a.barber === 'object' ? a.barber?.id : a.barber;
+      return bId === parseInt(timelineBarberId || '0') || 
+             a.barber_name === barbers?.find(b=>b.id.toString()===timelineBarberId)?.first_name ||
+             a.barber_name === barbers?.find(b=>b.id.toString()===timelineBarberId)?.username;
+    }).map(a => ({ ...a, type: 'appointment' as const })) || []),
+    ...(timeBlocks?.filter(b => {
+      const bId = typeof b.barber === 'object' ? b.barber?.id : b.barber;
+      return bId === parseInt(timelineBarberId || '0');
+    }).map(b => ({ ...b, type: 'block' as const })) || [])
+  ];
+
   return (
     <div className="flex flex-col lg:flex-row gap-8">
       {/* Calendar Side */}
@@ -611,139 +666,219 @@ export default function Agenda() {
           </div>
         </div>
 
-        {isLoading || isLoadingBlocks ? (
-          <div className="text-center py-20 text-muted-foreground italic">Carregando agendamentos...</div>
-        ) : (filteredAppointments?.length === 0 && timeBlocks?.length === 0) ? (
-          <div className="text-center py-20 bg-card/30 rounded-2xl border-2 border-dashed border-border/50">
-            <p className="text-muted-foreground text-lg">Nenhum agendamento {statusFilter !== 'all' ? `"${statusMap[statusFilter]?.label}"` : ''} para esta data.</p>
+        {/* Timeline View */}
+        <div className="flex-1 bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
+          {/* Timeline Header */}
+          <div className="p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-muted/10">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {me?.role === 'admin' ? (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <Select value={timelineBarberId || ''} onValueChange={setTimelineBarberId}>
+                    <SelectTrigger className="w-full sm:w-[220px] bg-background border-border/50">
+                      <SelectValue placeholder="Selecione o barbeiro" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      {barbers?.map(b => (
+                        <SelectItem key={b.id} value={b.id.toString()}>Agenda de {b.first_name || b.username}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <User className="w-5 h-5 text-primary" /> {me?.first_name || me?.username}
+                </h3>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="grid gap-4">
-            {[
-              ...(filteredAppointments?.map(a => ({ ...a, type: 'appointment' as const })) || []),
-              ...(timeBlocks?.map(b => ({ ...b, type: 'block' as const })) || [])
-            ].sort((a: any, b: any) => {
-              const timeA = a.type === 'appointment' ? a.date_time : a.start_time;
-              const timeB = b.type === 'appointment' ? b.date_time : b.start_time;
-              return timeA.localeCompare(timeB);
-            }).map((item: any) => (
-              item.type === 'appointment' ? (
-              <Card key={`app-${item.id}`} className="border-border/50 bg-card/50 hover:bg-card transition-colors">
-                <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-primary/10 rounded-xl flex flex-col items-center justify-center border border-primary/20 shrink-0">
-                      <span className="text-lg font-black text-primary leading-none">
-                        {format(new Date(item.date_time), 'HH:mm')}
-                      </span>
-                      <Clock className="w-3 h-3 text-primary/60 mt-1" />
+
+          {/* Timeline Body */}
+          {isLoading || isLoadingBlocks ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground italic">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Carregando agenda...
+            </div>
+          ) : timelineItems.length === 0 && statusFilter !== 'all' ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground italic px-4 text-center">
+              Nenhum agendamento com status "{statusMap[statusFilter]?.label}" para este barbeiro.
+            </div>
+          ) : (
+            <div className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-[500px]">
+              {/* Grid Background */}
+              <div className="absolute inset-0">
+                {timelineHours.map(h => (
+                  <div key={h} className="flex border-b border-border/30" style={{ height: '120px' }}>
+                    <div className="w-14 sm:w-16 shrink-0 border-r border-border/30 text-[11px] sm:text-xs text-muted-foreground font-medium flex justify-center pt-1.5 bg-muted/5">
+                      {h.toString().padStart(2, '0')}:00
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-bold text-lg">{item.client_name}</h4>
-                        <Badge className={statusMap[item.status]?.color + " border-none"}>
-                          {statusMap[item.status]?.label}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1"><Scissors className="w-3.5 h-3.5" /> {item.service_name}</span>
-                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {item.barber_name}</span>
-                        <span className="font-medium text-foreground">{formatCurrency(item.total_price)}</span>
-                      </div>
-                      {item.notes && (
-                        <div className="mt-2 p-2 bg-yellow-500/5 rounded border border-yellow-500/20 text-xs text-muted-foreground">
-                          <strong className="text-yellow-600/80">Observação:</strong> {item.notes}
-                        </div>
-                      )}
+                    <div className="flex-1 relative">
+                      <div className="absolute top-1/2 left-0 right-0 border-b border-border/20 border-dashed" />
                     </div>
                   </div>
+                ))}
+              </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    {item.status === 'pending' && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}
-                      >
-                        Confirmar
-                      </Button>
-                    )}
-                    {item.status === 'confirmed' && (
-                      <Button 
-                        size="sm" 
-                        variant="default" 
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => handleOpenComplete(item)}
-                      >
-                        Concluir
-                      </Button>
-                    )}
+              {/* Blocks */}
+              <div className="absolute top-0 bottom-0 left-14 sm:left-16 right-0 p-1 sm:p-2">
+                {timelineItems.map(item => {
+                  let top = 0;
+                  let height = 30;
+                  let startDate: Date;
+                  let endDate: Date;
+                  let durationMinutes = 30;
+                  
+                  if (item.type === 'appointment') {
+                    startDate = new Date(item.date_time);
+                    const h = startDate.getHours();
+                    const m = startDate.getMinutes();
                     
-                    <DropdownMenu>
+                    const srv = services?.find(s => s.name === item.service_name || s.id === item.service);
+                    durationMinutes = srv?.duration_minutes || 30;
+                    endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+                    
+                    top = ((h - startHour) * 60 + m) * 2;
+                    height = durationMinutes * 2;
+                  } else {
+                    startDate = new Date(item.start_time);
+                    endDate = new Date(item.end_time);
+                    const h = startDate.getHours();
+                    const m = startDate.getMinutes();
+                    durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+                    
+                    top = ((h - startHour) * 60 + m) * 2;
+                    height = durationMinutes * 2;
+                  }
+
+                  if (top < 0) return null; // Outside top bounds
+
+                  const isApp = item.type === 'appointment';
+                  const isCompleted = isApp && item.status === 'completed';
+                  const isCancelled = isApp && item.status === 'cancelled';
+                  const isNoShow = isApp && item.status === 'no_show';
+                  const isConfirmed = isApp && item.status === 'confirmed';
+
+                  const isCompact = height <= 40;
+
+                  return (
+                    <DropdownMenu key={`${item.type}-${item.id}`}>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreVertical className="w-5 h-5" /></Button>
+                        <div 
+                          className={cn(
+                            "absolute left-1 right-1 sm:left-2 sm:right-2 rounded-lg border overflow-hidden transition-all hover:ring-2 cursor-pointer shadow-sm z-10",
+                            isCompact ? "p-1 flex items-center" : "p-1.5 sm:p-2 flex flex-col gap-0",
+                            isApp ? "bg-primary/10 border-primary/20 hover:ring-primary/50" : "bg-destructive/10 border-destructive/30 border-dashed hover:ring-destructive/50",
+                            isCompleted && "bg-green-500/10 border-green-500/30",
+                            isCancelled && "bg-red-500/10 border-red-500/30",
+                            isNoShow && "bg-gray-500/10 border-gray-500/30",
+                            isConfirmed && "bg-blue-500/10 border-blue-500/30"
+                          )}
+                          style={{ 
+                            top: `${top}px`, 
+                            height: `${height}px`,
+                          }}
+                        >
+                          {isCompact ? (
+                            <div className="flex items-center justify-between w-full h-full gap-2">
+                              <div className="flex items-center gap-1 truncate">
+                                <span className="font-bold text-[10px] truncate">{isApp ? item.client_name : "Bloqueio"}</span>
+                                {isApp && <span className="text-[9px] opacity-80 truncate shrink-0 hidden sm:inline">- {item.service_name}</span>}
+                              </div>
+                              <div className="text-right shrink-0 leading-none">
+                                <div className="text-[9px] font-black opacity-70">
+                                  {format(startDate, 'HH:mm')}-{format(endDate, 'HH:mm')}
+                                </div>
+                                <div className="text-[8px] opacity-50 font-bold">
+                                  {durationMinutes} min
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between gap-1 sm:gap-2 w-full">
+                                <div className="font-bold text-[11px] sm:text-xs leading-tight truncate flex items-center gap-1">
+                                  <span className="truncate">{isApp ? item.client_name : "Bloqueio"}</span>
+                                  {isApp && item.notes && (
+                                    <span className="font-normal text-[9px] sm:text-[10px] opacity-50 italic truncate shrink">
+                                      ({item.notes})
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-[9px] sm:text-[10px] font-black opacity-70 leading-none">
+                                    {format(startDate, 'HH:mm')} - {format(endDate, 'HH:mm')}
+                                  </div>
+                                  <div className="text-[8px] sm:text-[9px] opacity-60 font-bold">
+                                    {durationMinutes} minutos
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="text-[10px] sm:text-xs opacity-80 truncate flex items-center gap-1 font-medium w-full">
+                                {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
+                              </div>
+                              
+                              {isApp && item.notes && height >= 80 && (
+                                <div className="text-[9px] sm:text-[10px] opacity-60 line-clamp-2 italic leading-tight w-full mt-0.5">
+                                  "{item.notes}"
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-card border-border">
-                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'cancelled' })} className="text-destructive">
-                          <XCircle className="w-4 h-4 mr-2" /> Cancelar
-                        </DropdownMenuItem>
-                        {item.notes?.includes('Recorrente') && (
-                          <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(item.id)} className="text-destructive font-bold">
-                            <XCircle className="w-4 h-4 mr-2" /> Cancelar Todos (Recorrentes)
-                          </DropdownMenuItem>
+                      <DropdownMenuContent align="start" side="right" className="bg-card border-border w-48 z-50">
+                        {isApp ? (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
+                              Ações do Agendamento
+                            </div>
+                            {item.status === 'pending' && (
+                              <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}>
+                                <Check className="w-4 h-4 mr-2 text-blue-500" /> Confirmar
+                              </DropdownMenuItem>
+                            )}
+                            {item.status === 'confirmed' && (
+                              <DropdownMenuItem onClick={() => handleOpenComplete(item)} className="font-bold text-green-500">
+                                <Check className="w-4 h-4 mr-2" /> Concluir Atendimento
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'cancelled' })} className="text-destructive">
+                              <XCircle className="w-4 h-4 mr-2" /> Cancelar
+                            </DropdownMenuItem>
+                            {item.notes?.includes('Recorrente') && (
+                              <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(item.id)} className="text-destructive font-bold">
+                                <XCircle className="w-4 h-4 mr-2" /> Cancelar Todos
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'no_show' })}>
+                              <User className="w-4 h-4 mr-2 text-gray-500" /> Faltou
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-destructive">
+                              Bloqueio de Agenda
+                            </div>
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={() => {
+                                if(confirm('Deseja realmente remover este bloqueio?')) {
+                                  deleteBlockMutation.mutate(item.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
+                            </DropdownMenuItem>
+                          </>
                         )}
-                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'no_show' })}>
-                          <User className="w-4 h-4 mr-2" /> Não Compareceu
-                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </div>
-                </CardContent>
-              </Card>
-              ) : (
-                <Card key={`block-${item.id}`} className="border-border/50 bg-destructive/5 hover:bg-destructive/10 transition-colors border-dashed">
-                  <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-destructive/10 rounded-xl flex flex-col items-center justify-center border border-destructive/20 shrink-0">
-                        <span className="text-lg font-black text-destructive leading-none">
-                          {format(new Date(item.start_time), 'HH:mm')}
-                        </span>
-                        <CalendarOff className="w-3 h-3 text-destructive/60 mt-1" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-bold text-lg text-destructive">Horário Bloqueado</h4>
-                          <Badge variant="outline" className="text-destructive border-destructive/30">
-                            Bloqueio
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {item.barber_name || 'Profissional'}</span>
-                          <span className="font-medium text-destructive/80 italic">{item.reason}</span>
-                          <span className="font-medium text-foreground">Até {format(new Date(item.end_time), 'HH:mm')}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-center">
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => {
-                          if(confirm('Deseja realmente remover este bloqueio?')) {
-                            deleteBlockMutation.mutate(item.id);
-                          }
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            ))}
-          </div>
-        )}
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Split Payment Modal */}
