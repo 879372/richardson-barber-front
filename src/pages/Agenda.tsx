@@ -233,7 +233,7 @@ export default function Agenda() {
         })()
       ];
 
-      const promises = datesToCreate.map(dateTime => {
+      const promises = datesToCreate.map((dateTime, index) => {
         let recurrenceNote = '';
         if (isRecurring) {
           const typeMap: Record<string, string> = {
@@ -253,7 +253,8 @@ export default function Agenda() {
           date_time: dateTime.toISOString(),
           notes: (newAppNotes ? newAppNotes + recurrenceNote : recurrenceNote.trim()),
           status: 'confirmed',
-          total_price: newAppService.price
+          total_price: newAppService.price,
+          skip_notification: index > 0
         });
       });
 
@@ -307,6 +308,17 @@ export default function Agenda() {
       toast.success('Status atualizado com sucesso!');
     },
     onError: () => toast.error('Erro ao atualizar status.'),
+  });
+
+  const cancelRecurringMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/cancel_recurring/`);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      toast.success(res.data.status || 'Agendamentos recorrentes cancelados!');
+    },
+    onError: () => toast.error('Erro ao cancelar agendamentos recorrentes.'),
   });
 
   const completeWithPaymentsMutation = useMutation({
@@ -498,6 +510,11 @@ export default function Agenda() {
                         <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'cancelled' })} className="text-destructive">
                           <XCircle className="w-4 h-4 mr-2" /> Cancelar
                         </DropdownMenuItem>
+                        {appointment.notes?.includes('Recorrente') && (
+                          <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(appointment.id)} className="text-destructive font-bold">
+                            <XCircle className="w-4 h-4 mr-2" /> Cancelar Todos (Recorrentes)
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'no_show' })}>
                           <User className="w-4 h-4 mr-2" /> Não Compareceu
                         </DropdownMenuItem>
@@ -843,7 +860,7 @@ export default function Agenda() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {[2, 3, 4, 5, 6, 8, 10, 12, 24].map(num => (
+                            {[2, 3, 4, 5, 6, 8, 10, 12, 24, 36, 48, 52, 100].map(num => (
                               <SelectItem key={num} value={num.toString()}>{num} vezes</SelectItem>
                             ))}
                           </SelectContent>

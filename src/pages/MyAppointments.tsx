@@ -91,6 +91,19 @@ export default function MyAppointments() {
     }
   });
 
+  const cancelRecurringMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return publicApi.post(`/appointments/${id}/public_cancel_recurring/`);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['my-appointments'] });
+      toast.success(res.data.status || 'Agendamentos recorrentes cancelados.');
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.error || 'Erro ao cancelar agendamentos recorrentes.');
+    }
+  });
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPhone = phoneInput.replace(/\D/g, "");
@@ -221,16 +234,30 @@ export default function MyAppointments() {
                                 <AlertDialogTitle>Cancelar agendamento?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                   Você está prestes a cancelar seu agendamento para <strong>{app.service_name}</strong> em <strong>{format(new Date(app.date_time), "dd/MM 'às' HH:mm")}</strong>.
+                                  {app.notes?.includes('Recorrente') && (
+                                    <div className="mt-4 p-3 bg-primary/5 rounded-lg border border-primary/20 text-primary text-sm">
+                                      Este agendamento faz parte de uma <strong>série recorrente</strong>.
+                                    </div>
+                                  )}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Voltar</AlertDialogCancel>
+                              <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                                <AlertDialogCancel className="mt-0">Voltar</AlertDialogCancel>
+                                {app.notes?.includes('Recorrente') && (
+                                  <AlertDialogAction 
+                                    onClick={() => cancelRecurringMutation.mutate(app.id)}
+                                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                                  >
+                                    {cancelRecurringMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                                    Cancelar Toda a Série
+                                  </AlertDialogAction>
+                                )}
                                 <AlertDialogAction 
                                   onClick={() => cancelMutation.mutate(app.id)}
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 >
                                   {cancelMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                                  Confirmar Cancelamento
+                                  Confirmar Cancelamento (Apenas este)
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
