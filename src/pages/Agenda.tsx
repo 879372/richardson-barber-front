@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw } from 'lucide-react';
+import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,8 +38,17 @@ import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
+type Product = {
+  id: number;
+  name: string;
+  brand: string;
+  stock_quantity: number;
+  sale_price: string;
+};
+
 type Appointment = {
   id: number;
+  client: number;
   client_name: string;
   barber_name: string;
   service_name: string;
@@ -47,6 +56,15 @@ type Appointment = {
   status: string;
   total_price: string;
   notes?: string;
+};
+
+type TimeBlock = {
+  id: number;
+  start_time: string;
+  end_time: string;
+  reason: string;
+  barber: number;
+  barber_name?: string;
 };
 
 const statusMap: Record<string, { label: string; color: string }> = {
@@ -95,6 +113,13 @@ export default function Agenda() {
   const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
   const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<{ id: number; name: string; quantity: number; unit_price: string }[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  
+  // New States for Flow
+  const [showSaleQuestion, setShowSaleQuestion] = useState(false);
+  const [showProductSaleModal, setShowProductSaleModal] = useState(false);
+  const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
   
   // New Appointment Form State
   const [newAppClient, setNewAppClient] = useState<any>(null);
@@ -117,6 +142,11 @@ export default function Agenda() {
     birth_date: ''
   });
 
+  // Time Block State
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockBarber, setBlockBarber] = useState<any>(null);
+  const [blockReason, setBlockReason] = useState('');
+
   const queryClient = useQueryClient();
 
   const { data: customMethods } = useQuery({
@@ -131,6 +161,11 @@ export default function Agenda() {
       return res.data;
     },
     refetchInterval: 300000, // 5 minutes
+  });
+
+  const { data: products } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => (await api.get<Product[]>('/products/')).data
   });
   
   const { data: clients } = useQuery({
@@ -148,7 +183,20 @@ export default function Agenda() {
   const { data: barbers } = useQuery({
     queryKey: ['barbers'],
     queryFn: async () => (await api.get<any[]>('/users/?role=barber')).data,
-    enabled: showNewAppointmentModal
+    enabled: showNewAppointmentModal || showBlockModal
+  });
+
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: async () => (await api.get('/users/me/')).data
+  });
+
+  const { data: timeBlocks, isLoading: isLoadingBlocks } = useQuery({
+    queryKey: ['time-blocks', format(selectedDate, 'yyyy-MM-dd')],
+    queryFn: async () => {
+      const res = await api.get<TimeBlock[]>(`/time-blocks/?start_time__date=${format(selectedDate, 'yyyy-MM-dd')}`);
+      return res.data;
+    }
   });
 
   const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
@@ -299,6 +347,41 @@ export default function Agenda() {
     setCustomDates([]);
   };
 
+  const createBlockMutation = useMutation({
+    mutationFn: async (startTimeStr: string) => {
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const barberToBlock = me?.role === 'admin' ? blockBarber : me;
+      
+      if (!barberToBlock) return;
+
+      // Default block duration: 30 minutes
+      const start = new Date(`${dateStr}T${startTimeStr}:00`);
+      const end = new Date(start.getTime() + 30 * 60000);
+
+      return api.post('/time-blocks/', {
+        barber: barberToBlock.id,
+        start_time: `${dateStr}T${startTimeStr}:00`,
+        end_time: `${dateStr}T${format(end, 'HH:mm')}:00`,
+        reason: blockReason || 'Bloqueio de Agenda'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['time-blocks'] });
+      queryClient.invalidateQueries({ queryKey: ['available-times'] });
+      toast.success('Horário bloqueado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao bloquear horário.')
+  });
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/time-blocks/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['time-blocks'] });
+      toast.success('Bloqueio removido com sucesso!');
+    },
+    onError: () => toast.error('Erro ao remover bloqueio.')
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
       return api.patch(`/appointments/${id}/`, { status });
@@ -328,11 +411,27 @@ export default function Agenda() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowCompleteModal(false);
-      setActiveAppointment(null);
+      // Don't clear activeAppointment yet, we might need it for the sale question
       setPayments([]);
       toast.success('Atendimento concluído com sucesso!');
+      setShowSaleQuestion(true);
     },
-    onError: () => toast.error('Erro ao concluir atendimento.'),
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao concluir atendimento.'),
+  });
+
+  const createSaleMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return api.post('/sales/', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setShowProductSaleModal(false);
+      setActiveAppointment(null);
+      setSelectedProducts([]);
+      setSalePayments([]);
+      toast.success('Venda registrada com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar venda.')
   });
 
   const handleOpenComplete = (app: Appointment) => {
@@ -354,6 +453,10 @@ export default function Agenda() {
     newPayments[index] = { ...newPayments[index], [field]: value };
     setPayments(newPayments);
   };
+
+  const totalProducts = selectedProducts.reduce((acc, curr) => acc + (parseFloat(curr.unit_price) * curr.quantity), 0);
+  const totalSalePaid = salePayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
+  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - totalProducts) < 0.01;
 
   const totalPaid = payments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
   const isTotalValid = activeAppointment && Math.abs(totalPaid - parseFloat(activeAppointment.total_price)) < 0.01;
@@ -413,14 +516,14 @@ export default function Agenda() {
             <p className="text-sm text-muted-foreground">Gerencie os horários e atendimentos.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 sm:flex-none min-w-[140px]">
+            <div className="relative w-full sm:w-auto">
               <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[180px] pl-9 bg-background border-border/50">
-                  <SelectValue placeholder="Filtrar Status" />
+                <SelectTrigger className="w-full sm:w-[160px] pl-9 bg-background border-border/50">
+                  <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border">
-                  <SelectItem value="all">Todos Status</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="pending">Pendentes</SelectItem>
                   <SelectItem value="confirmed">Confirmados</SelectItem>
                   <SelectItem value="completed">Concluídos</SelectItem>
@@ -429,10 +532,27 @@ export default function Agenda() {
                 </SelectContent>
               </Select>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())} className="h-10 sm:h-9">Hoje</Button>
+            
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())} className="h-10 sm:h-9 flex-1 sm:flex-none">Hoje</Button>
+              <Button 
+                variant="outline"
+                size="sm"
+                className="gap-2 h-10 sm:h-9 flex-1 sm:flex-none"
+                onClick={() => {
+                  if (me?.role !== 'admin') {
+                    setBlockBarber(me);
+                  }
+                  setShowBlockModal(true);
+                }}
+              >
+                <CalendarOff className="w-4 h-4" /> Bloquear
+              </Button>
+            </div>
+
             <Button 
               size="sm" 
-              className="gap-2 h-10 sm:h-9 flex-1 sm:flex-none" 
+              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#d4a017] hover:bg-[#b8860b] text-white font-bold" 
               onClick={() => {
                 resetNewAppForm();
                 setShowNewAppointmentModal(true);
@@ -443,60 +563,68 @@ export default function Agenda() {
           </div>
         </div>
 
-        {isLoading ? (
+        {isLoading || isLoadingBlocks ? (
           <div className="text-center py-20 text-muted-foreground italic">Carregando agendamentos...</div>
-        ) : filteredAppointments?.length === 0 ? (
+        ) : (filteredAppointments?.length === 0 && timeBlocks?.length === 0) ? (
           <div className="text-center py-20 bg-card/30 rounded-2xl border-2 border-dashed border-border/50">
             <p className="text-muted-foreground text-lg">Nenhum agendamento {statusFilter !== 'all' ? `"${statusMap[statusFilter]?.label}"` : ''} para esta data.</p>
           </div>
         ) : (
           <div className="grid gap-4">
-            {filteredAppointments?.map((appointment) => (
-              <Card key={appointment.id} className="border-border/50 bg-card/50 hover:bg-card transition-colors">
+            {[
+              ...(filteredAppointments?.map(a => ({ ...a, type: 'appointment' as const })) || []),
+              ...(timeBlocks?.map(b => ({ ...b, type: 'block' as const })) || [])
+            ].sort((a: any, b: any) => {
+              const timeA = a.type === 'appointment' ? a.date_time : a.start_time;
+              const timeB = b.type === 'appointment' ? b.date_time : b.start_time;
+              return timeA.localeCompare(timeB);
+            }).map((item: any) => (
+              item.type === 'appointment' ? (
+              <Card key={`app-${item.id}`} className="border-border/50 bg-card/50 hover:bg-card transition-colors">
                 <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-primary/10 rounded-xl flex flex-col items-center justify-center border border-primary/20 shrink-0">
                       <span className="text-lg font-black text-primary leading-none">
-                        {format(new Date(appointment.date_time), 'HH:mm')}
+                        {format(new Date(item.date_time), 'HH:mm')}
                       </span>
                       <Clock className="w-3 h-3 text-primary/60 mt-1" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-bold text-lg">{appointment.client_name}</h4>
-                        <Badge className={statusMap[appointment.status]?.color + " border-none"}>
-                          {statusMap[appointment.status]?.label}
+                        <h4 className="font-bold text-lg">{item.client_name}</h4>
+                        <Badge className={statusMap[item.status]?.color + " border-none"}>
+                          {statusMap[item.status]?.label}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1"><Scissors className="w-3.5 h-3.5" /> {appointment.service_name}</span>
-                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {appointment.barber_name}</span>
-                        <span className="font-medium text-foreground">{formatCurrency(appointment.total_price)}</span>
+                        <span className="flex items-center gap-1"><Scissors className="w-3.5 h-3.5" /> {item.service_name}</span>
+                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {item.barber_name}</span>
+                        <span className="font-medium text-foreground">{formatCurrency(item.total_price)}</span>
                       </div>
-                      {appointment.notes && (
+                      {item.notes && (
                         <div className="mt-2 p-2 bg-yellow-500/5 rounded border border-yellow-500/20 text-xs text-muted-foreground">
-                          <strong className="text-yellow-600/80">Observação:</strong> {appointment.notes}
+                          <strong className="text-yellow-600/80">Observação:</strong> {item.notes}
                         </div>
                       )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-center">
-                    {appointment.status === 'pending' && (
+                    {item.status === 'pending' && (
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'confirmed' })}
+                        onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}
                       >
                         Confirmar
                       </Button>
                     )}
-                    {appointment.status === 'confirmed' && (
+                    {item.status === 'confirmed' && (
                       <Button 
                         size="sm" 
                         variant="default" 
                         className="bg-green-600 hover:bg-green-700"
-                        onClick={() => handleOpenComplete(appointment)}
+                        onClick={() => handleOpenComplete(item)}
                       >
                         Concluir
                       </Button>
@@ -507,15 +635,15 @@ export default function Agenda() {
                         <Button variant="ghost" size="icon"><MoreVertical className="w-5 h-5" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="bg-card border-border">
-                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'cancelled' })} className="text-destructive">
+                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'cancelled' })} className="text-destructive">
                           <XCircle className="w-4 h-4 mr-2" /> Cancelar
                         </DropdownMenuItem>
-                        {appointment.notes?.includes('Recorrente') && (
-                          <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(appointment.id)} className="text-destructive font-bold">
+                        {item.notes?.includes('Recorrente') && (
+                          <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(item.id)} className="text-destructive font-bold">
                             <XCircle className="w-4 h-4 mr-2" /> Cancelar Todos (Recorrentes)
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: appointment.id, status: 'no_show' })}>
+                        <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'no_show' })}>
                           <User className="w-4 h-4 mr-2" /> Não Compareceu
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -523,12 +651,55 @@ export default function Agenda() {
                   </div>
                 </CardContent>
               </Card>
+              ) : (
+                <Card key={`block-${item.id}`} className="border-border/50 bg-destructive/5 hover:bg-destructive/10 transition-colors border-dashed">
+                  <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-destructive/10 rounded-xl flex flex-col items-center justify-center border border-destructive/20 shrink-0">
+                        <span className="text-lg font-black text-destructive leading-none">
+                          {format(new Date(item.start_time), 'HH:mm')}
+                        </span>
+                        <CalendarOff className="w-3 h-3 text-destructive/60 mt-1" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-bold text-lg text-destructive">Horário Bloqueado</h4>
+                          <Badge variant="outline" className="text-destructive border-destructive/30">
+                            Bloqueio
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Prof: {item.barber_name || 'Profissional'}</span>
+                          <span className="font-medium text-destructive/80 italic">{item.reason}</span>
+                          <span className="font-medium text-foreground">Até {format(new Date(item.end_time), 'HH:mm')}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => {
+                          if(confirm('Deseja realmente remover este bloqueio?')) {
+                            deleteBlockMutation.mutate(item.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
             ))}
           </div>
         )}
       </div>
 
       {/* Split Payment Modal */}
+      {/* Service Completion Modal */}
       <Dialog open={showCompleteModal} onOpenChange={setShowCompleteModal}>
         <DialogContent className="bg-card border-border sm:max-w-md">
           <DialogHeader>
@@ -540,7 +711,7 @@ export default function Agenda() {
 
           <div className="space-y-4 py-4">
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Valor Total:</span>
+              <span className="text-muted-foreground">Valor do Serviço:</span>
               <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
             </div>
 
@@ -552,7 +723,7 @@ export default function Agenda() {
                       value={payment.method} 
                       onValueChange={(val) => updatePayment(index, 'method', val)}
                     >
-                      <SelectTrigger className="bg-background border-border/50">
+                      <SelectTrigger className="bg-background border-border/50 h-11">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-card border-border">
@@ -570,7 +741,7 @@ export default function Agenda() {
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                     <Input 
                       type="number" 
-                      className="pl-7 bg-background border-border/50" 
+                      className="pl-7 bg-background border-border/50 h-11" 
                       value={payment.amount}
                       onChange={(e) => updatePayment(index, 'amount', e.target.value)}
                     />
@@ -579,7 +750,7 @@ export default function Agenda() {
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      className="text-destructive h-10 w-10"
+                      className="text-destructive h-11 w-11"
                       onClick={() => removePaymentRow(index)}
                     >
                       <Trash2 className="w-4 h-4" />
@@ -589,7 +760,7 @@ export default function Agenda() {
               ))}
             </div>
 
-            <Button variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addPaymentRow}>
+            <Button variant="outline" size="sm" className="w-full gap-2 border-dashed h-11" onClick={addPaymentRow}>
               <Plus className="w-4 h-4" /> Adicionar forma de pagamento
             </Button>
 
@@ -602,6 +773,7 @@ export default function Agenda() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCompleteModal(false)}>Cancelar</Button>
             <Button 
+              className="px-6 font-bold"
               disabled={!isTotalValid || completeWithPaymentsMutation.isPending}
               onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({ 
                 id: activeAppointment.id, 
@@ -610,6 +782,267 @@ export default function Agenda() {
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Finalizar Atendimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sale Question Modal */}
+      <Dialog open={showSaleQuestion} onOpenChange={setShowSaleQuestion}>
+        <DialogContent className="bg-card border-border sm:max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl">Atendimento Finalizado!</DialogTitle>
+            <DialogDescription className="text-center text-base pt-2">
+              O cliente <strong>{activeAppointment?.client_name}</strong> comprou algum produto?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 pt-4">
+            <Button 
+              variant="outline" 
+              className="flex-1 h-12 text-lg font-medium" 
+              onClick={() => {
+                setShowSaleQuestion(false);
+                setActiveAppointment(null);
+              }}
+            >
+              Não
+            </Button>
+            <Button 
+              className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20" 
+              onClick={() => {
+                setShowSaleQuestion(false);
+                setSalePayments([{ method: 'pix', amount: '0' }]);
+                setSelectedProducts([]);
+                setShowProductSaleModal(true);
+              }}
+            >
+              Sim
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Standalone Product Sale Modal */}
+      <Dialog open={showProductSaleModal} onOpenChange={setShowProductSaleModal}>
+        <DialogContent className="bg-card border-border sm:max-w-2xl overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>Venda de Produtos</DialogTitle>
+            <DialogDescription>
+              Registre os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid md:grid-cols-2 gap-8 py-4">
+            {/* Products Side */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm flex items-center gap-2 text-primary uppercase tracking-wider">
+                <ShoppingCart className="w-4 h-4" /> Itens da Venda
+              </h3>
+              
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Pesquisar produto..." 
+                  className="pl-9 bg-background border-border/50 h-10"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                />
+                
+                {productSearch && (
+                  <Card className="absolute top-full left-0 right-0 z-50 mt-1 border-border shadow-2xl bg-card max-h-[200px] overflow-y-auto ring-1 ring-primary/20">
+                    <div className="p-1">
+                      {products?.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase())).map(product => (
+                        <button
+                          key={product.id}
+                          className="w-full text-left p-3 hover:bg-primary/10 rounded-md transition-colors flex justify-between items-center text-sm border-b border-border/30 last:border-0"
+                          onClick={() => {
+                            const existing = selectedProducts.find(p => p.id === product.id);
+                            if (existing) {
+                              setSelectedProducts(selectedProducts.map(p => p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p));
+                            } else {
+                              setSelectedProducts([...selectedProducts, { id: product.id, name: product.name, quantity: 1, unit_price: product.sale_price }]);
+                            }
+                            setProductSearch('');
+                            // Auto-update payment if only one
+                            if (salePayments.length === 1) {
+                              const newTotal = totalProducts + parseFloat(product.sale_price);
+                              setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2) }]);
+                            }
+                          }}
+                        >
+                          <div>
+                            <div className="font-bold">{product.name}</div>
+                            <div className="text-[10px] text-muted-foreground">{product.stock_quantity} em estoque</div>
+                          </div>
+                          <span className="text-primary font-black">{formatCurrency(product.sale_price)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                {selectedProducts.map((p, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-primary/5 border border-primary/10 text-sm">
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-bold truncate">{p.name}</div>
+                      <div className="text-[10px] text-primary font-bold uppercase">{formatCurrency(p.unit_price)} / un</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center border border-border/50 rounded-lg bg-background overflow-hidden h-9 shadow-sm">
+                        <button 
+                          className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
+                          onClick={() => {
+                            const newQty = p.quantity - 1;
+                            if (newQty > 0) {
+                              setSelectedProducts(selectedProducts.map((prod, i) => i === idx ? { ...prod, quantity: newQty } : prod));
+                            } else {
+                              setSelectedProducts(selectedProducts.filter((_, i) => i !== idx));
+                            }
+                          }}
+                        >
+                          -
+                        </button>
+                        <span className="px-2 font-black min-w-[24px] text-center">{p.quantity}</span>
+                        <button 
+                          className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
+                          onClick={() => setSelectedProducts(selectedProducts.map((prod, i) => i === idx ? { ...prod, quantity: prod.quantity + 1 } : prod))}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                        onClick={() => setSelectedProducts(selectedProducts.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {selectedProducts.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground text-xs italic border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 opacity-60">
+                    <ShoppingCart className="w-8 h-8 mb-1" />
+                    Nenhum produto selecionado
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sale Payments Side */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm flex items-center gap-2 text-green-500 uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" /> Pagamento da Venda
+              </h3>
+
+              <div className="space-y-2 p-5 rounded-2xl bg-muted/40 border border-border/50 shadow-inner">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Total Produtos:</span>
+                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {salePayments.map((payment, index) => (
+                  <div key={index} className="flex gap-2 items-center group">
+                    <div className="flex-1">
+                      <Select 
+                        value={payment.method} 
+                        onValueChange={(val) => {
+                          const newP = [...salePayments];
+                          newP[index].method = val;
+                          setSalePayments(newP);
+                        }}
+                      >
+                        <SelectTrigger className="bg-background border-border/50 h-11 rounded-xl group-hover:border-primary/30 transition-colors">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border-border">
+                          <SelectItem value="pix">PIX</SelectItem>
+                          <SelectItem value="cash">Dinheiro</SelectItem>
+                          <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                          <SelectItem value="debit">Cartão de Débito</SelectItem>
+                          {customMethods?.filter(m => m.is_active).map(m => (
+                            <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-32 relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input 
+                        type="number" 
+                        className="pl-8 bg-background border-border/50 h-11 rounded-xl font-bold" 
+                        value={payment.amount}
+                        onChange={(e) => {
+                          const newP = [...salePayments];
+                          newP[index].amount = e.target.value;
+                          setSalePayments(newP);
+                        }}
+                      />
+                    </div>
+                    {salePayments.length > 1 && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="text-destructive h-11 w-11 shrink-0 hover:bg-destructive/10"
+                        onClick={() => setSalePayments(salePayments.filter((_, i) => i !== index))}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50" 
+                  onClick={() => {
+                    const remaining = totalProducts - totalSalePaid;
+                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2) : '0' }]);
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar Outra Forma
+                </Button>
+              </div>
+
+              <div className={`p-4 rounded-xl flex justify-between items-center transition-colors ${isSaleTotalValid ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Total Recebido</span>
+                  <span className="font-black text-xl leading-none">{formatCurrency(totalSalePaid)}</span>
+                </div>
+                {!isSaleTotalValid && totalProducts > 0 && (
+                   <div className="text-[10px] font-bold text-right italic leading-tight">
+                    Faltam {formatCurrency(totalProducts - totalSalePaid)}
+                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border/50 pt-4 mt-2">
+            <Button variant="ghost" onClick={() => {
+              setShowProductSaleModal(false);
+              setActiveAppointment(null);
+            }}>
+              Pular / Cancelar
+            </Button>
+            <Button 
+              className="px-10 font-black h-12 shadow-xl shadow-primary/20"
+              disabled={!isSaleTotalValid || createSaleMutation.isPending}
+              onClick={() => createSaleMutation.mutate({ 
+                appointment: activeAppointment?.id,
+                client: activeAppointment?.client, // Assuming ID is in client field or nested
+                products: selectedProducts,
+                payments: salePayments
+              })}
+            >
+              {createSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Registrar Venda
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -958,6 +1391,107 @@ export default function Agenda() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Time Block Modal */}
+      <Dialog open={showBlockModal} onOpenChange={setShowBlockModal}>
+        <DialogContent className="bg-card border-border sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Bloquear Horários</DialogTitle>
+            <DialogDescription>
+              Selecione os horários que deseja bloquear em <strong>{format(selectedDate, "dd/MM/yyyy")}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {me?.role === 'admin' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Profissional</label>
+                <Select 
+                  value={blockBarber?.id?.toString()} 
+                  onValueChange={(val) => {
+                    const b = barbers?.find(b => b.id.toString() === val);
+                    setBlockBarber(b);
+                  }}
+                >
+                  <SelectTrigger className="bg-background border-border/50">
+                    <SelectValue placeholder="Selecione o Barbeiro" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    {barbers?.map(barber => (
+                      <SelectItem key={barber.id} value={barber.id.toString()}>
+                        {barber.first_name || barber.username}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Motivo do Bloqueio</label>
+              <Input 
+                placeholder="Ex: Intervalo, Almoço, Compromisso..." 
+                value={blockReason} 
+                onChange={(e) => setBlockReason(e.target.value)} 
+                className="bg-background border-border/50"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-sm font-medium block">Horários Disponíveis</label>
+              {!blockBarber ? (
+                <div className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border-2 border-dashed">
+                  Selecione um profissional para ver os horários.
+                </div>
+              ) : (
+                <TimeSlotsGrid 
+                  barberId={blockBarber.id} 
+                  date={selectedDate} 
+                  onSelectTime={(time) => createBlockMutation.mutate(time)}
+                  isLoading={createBlockMutation.isPending}
+                />
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBlockModal(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Helper component to show the grid of available times for blocking
+function TimeSlotsGrid({ barberId, date, onSelectTime, isLoading }: { barberId: number, date: Date, onSelectTime: (t: string) => void, isLoading: boolean }) {
+  const { data: times, isLoading: loadingTimes } = useQuery({
+    queryKey: ['available-times-block', barberId, format(date, 'yyyy-MM-dd')],
+    queryFn: async () => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      // Using a generic service check or assuming 30min slots for blocking
+      const res = await api.get<string[]>(`/users/${barberId}/available_times/?date=${dateStr}`);
+      return res.data;
+    },
+  });
+
+  if (loadingTimes) return <div className="text-center py-8 italic text-muted-foreground">Carregando horários...</div>;
+  if (!times || times.length === 0) return <div className="text-center py-8 text-muted-foreground">Sem horários disponíveis para bloquear nesta data.</div>;
+
+  return (
+    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+      {times.map(time => (
+        <Button
+          key={time}
+          variant="outline"
+          size="sm"
+          className="font-bold hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-all"
+          disabled={isLoading}
+          onClick={() => onSelectTime(time)}
+        >
+          {time}
+        </Button>
+      ))}
     </div>
   );
 }

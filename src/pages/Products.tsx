@@ -71,8 +71,8 @@ export default function Products() {
   });
 
   const sellMutation = useMutation({
-    mutationFn: async (data: { product: number; quantity: number; unit_price: string; total_price: string; payment_method: string }) => {
-      return api.post('/product-sales/', data);
+    mutationFn: async (data: any) => {
+      return api.post('/sales/', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -123,12 +123,24 @@ export default function Products() {
     if (!sellingProduct) return;
     const formData = new FormData(e.currentTarget);
     const quantity = parseInt(formData.get('quantity') as string);
+    const unitPrice = sellingProduct.sale_price;
+    const totalAmount = (parseFloat(unitPrice) * quantity).toFixed(2);
+    const method = formData.get('payment_method') as string;
+
     const data = {
-      product: sellingProduct.id,
-      quantity,
-      unit_price: sellingProduct.sale_price,
-      total_price: (parseFloat(sellingProduct.sale_price) * quantity).toFixed(2),
-      payment_method: formData.get('payment_method') as string,
+      products: [
+        {
+          id: sellingProduct.id,
+          quantity,
+          unit_price: unitPrice
+        }
+      ],
+      payments: [
+        {
+          method,
+          amount: totalAmount
+        }
+      ]
     };
     sellMutation.mutate(data);
   };
