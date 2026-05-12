@@ -14,6 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog,
@@ -90,6 +91,13 @@ const maskDate = (v: string) => {
   return v;
 };
 
+const maskTime = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 4) v = v.slice(0, 4);
+  if (v.length > 2) v = v.replace(/^(\d{2})(\d)/g, "$1:$2");
+  return v;
+};
+
 const dateToBackend = (dateStr: string) => {
   if (!dateStr || !dateStr.includes('/')) return dateStr || null;
   const [day, month, year] = dateStr.split('/');
@@ -109,7 +117,7 @@ const maskPhone = (v: string) => {
 
 export default function Agenda() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string[]>(['confirmed', 'completed']);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
   const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
@@ -130,6 +138,7 @@ export default function Agenda() {
   const [walkInService, setWalkInService] = useState<any>(null);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
   const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0' }]);
+  const [walkInTime, setWalkInTime] = useState<string>('');
   
   // Timeline State
   const [timelineBarberId, setTimelineBarberId] = useState<string | null>(null);
@@ -168,10 +177,11 @@ export default function Agenda() {
   });
 
   const { data: appointments, isLoading } = useQuery({
-    queryKey: ['appointments', format(selectedDate, 'yyyy-MM-dd')],
+    queryKey: ['appointments', format(selectedDate, 'yyyy-MM-dd'), statusFilter],
     queryFn: async () => {
-      const res = await api.get<Appointment[]>(`/appointments/?date_time__date=${format(selectedDate, 'yyyy-MM-dd')}`);
-      return res.data;
+      const statusParam = statusFilter.join(',');
+      const res = await api.get<Appointment[]>(`/appointments/?date_time__date=${format(selectedDate, 'yyyy-MM-dd')}&status__in=${statusParam}`);
+      return res.data.sort((a, b) => a.date_time.localeCompare(b.date_time));
     },
     refetchInterval: 300000, // 5 minutes
   });
@@ -463,22 +473,32 @@ export default function Agenda() {
 
   const createWalkInMutation = useMutation({
     mutationFn: async () => {
-      if (!walkInClient || !walkInService || !walkInBarber) throw new Error("Preencha todos os campos.");
+      if (!walkInClient || !walkInService || !walkInBarber || !walkInTime) throw new Error("Preencha todos os campos.");
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const dateTime = `${dateStr}T${walkInTime}:00`;
+      
       return api.post('/appointments/walk_in/', {
         service_id: walkInService.id,
         barber_id: walkInBarber.id,
         client_id: walkInClient.id,
         client_name: walkInClient.first_name,
-        payments: walkInPayments
+        payments: walkInPayments,
+        date_time: dateTime
       });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowWalkInModal(false);
+      
+      // Trigger sale question
+      setActiveAppointment(res.data);
+      setShowSaleQuestion(true);
+
       setWalkInClient(null);
       setWalkInService(null);
       setWalkInBarber(null);
       setWalkInPayments([{ method: 'pix', amount: '0' }]);
+      setWalkInTime('');
       toast.success('Atendimento avulso registrado com sucesso!');
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar atendimento avulso.')
@@ -514,10 +534,7 @@ export default function Agenda() {
   const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
   const isWalkInValid = walkInClient && walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
 
-  const filteredAppointments = appointments?.filter(app => {
-    if (statusFilter === 'all') return true;
-    return app.status === statusFilter;
-  }).sort((a, b) => a.date_time.localeCompare(b.date_time));
+  const filteredAppointments = appointments || [];
 
   const getTimelineBounds = () => {
     const dayOfWeek = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1; // Backend: 0=Mon
@@ -605,21 +622,35 @@ export default function Agenda() {
             <p className="text-sm text-muted-foreground">Gerencie os horários e atendimentos.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-full sm:w-auto">
-              <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[160px] pl-9 bg-background border-border/50">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border">
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pending">Pendentes</SelectItem>
-                  <SelectItem value="confirmed">Confirmados</SelectItem>
-                  <SelectItem value="completed">Concluídos</SelectItem>
-                  <SelectItem value="cancelled">Cancelados</SelectItem>
-                  <SelectItem value="no_show">Faltas</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-10 sm:h-9 gap-2 min-w-[150px] bg-background">
+                    <Filter className="w-4 h-4 text-muted-foreground" />
+                    <span className="truncate">
+                      {statusFilter.length === Object.keys(statusMap).length 
+                        ? "Todos Status" 
+                        : statusFilter.length === 0 
+                          ? "Nenhum Status"
+                          : `${statusFilter.length} Selecionados`}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56 bg-card border-border">
+                  {Object.entries(statusMap).map(([key, value]) => (
+                    <DropdownMenuCheckboxItem
+                      key={key}
+                      checked={statusFilter.includes(key)}
+                      onCheckedChange={(checked) => {
+                        if (checked) setStatusFilter([...statusFilter, key]);
+                        else setStatusFilter(statusFilter.filter(s => s !== key));
+                      }}
+                    >
+                      {value.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -698,9 +729,9 @@ export default function Agenda() {
             <div className="flex-1 flex items-center justify-center text-muted-foreground italic">
               <Loader2 className="w-6 h-6 animate-spin mr-2" /> Carregando agenda...
             </div>
-          ) : timelineItems.length === 0 && statusFilter !== 'all' ? (
+          ) : timelineItems.length === 0 && statusFilter.length < Object.keys(statusMap).length ? (
             <div className="flex-1 flex items-center justify-center text-muted-foreground italic px-4 text-center">
-              Nenhum agendamento com status "{statusMap[statusFilter]?.label}" para este barbeiro.
+              Nenhum agendamento com os status selecionados para este barbeiro.
             </div>
           ) : (
             <div className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-[500px]">
@@ -1760,6 +1791,24 @@ export default function Agenda() {
             </div>
 
             <div className="space-y-2">
+              <Label>Horário do Atendimento *</Label>
+              <div className="relative">
+                <Input 
+                  placeholder="HH:mm (Ex: 14:30)"
+                  className="bg-background border-border/50 h-11 text-center text-lg font-bold"
+                  value={walkInTime}
+                  onChange={(e) => setWalkInTime(maskTime(e.target.value))}
+                  inputMode="numeric"
+                />
+                {walkInService && walkInTime.length === 5 && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-medium uppercase">
+                    Duração: {walkInService.duration_minutes} min
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <Label>Profissional *</Label>
               <Select 
                 value={walkInBarber?.id?.toString() || ''} 
@@ -1860,7 +1909,7 @@ export default function Agenda() {
             <Button variant="outline" onClick={() => setShowWalkInModal(false)}>Cancelar</Button>
             <Button 
               className="px-6 font-bold"
-              disabled={!isWalkInValid || createWalkInMutation.isPending}
+              disabled={!isWalkInValid || !walkInTime || createWalkInMutation.isPending}
               onClick={() => createWalkInMutation.mutate()}
             >
               {createWalkInMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
