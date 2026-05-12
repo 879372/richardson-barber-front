@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart } from 'lucide-react';
+import { Clock, User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -120,6 +120,13 @@ export default function Agenda() {
   const [showSaleQuestion, setShowSaleQuestion] = useState(false);
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
   const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
+  
+  // Walk-In State
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [walkInClientName, setWalkInClientName] = useState('');
+  const [walkInService, setWalkInService] = useState<any>(null);
+  const [walkInBarber, setWalkInBarber] = useState<any>(null);
+  const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0' }]);
   
   // New Appointment Form State
   const [newAppClient, setNewAppClient] = useState<any>(null);
@@ -434,6 +441,28 @@ export default function Agenda() {
     onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar venda.')
   });
 
+  const createWalkInMutation = useMutation({
+    mutationFn: async () => {
+      if (!walkInService || !walkInBarber) throw new Error("Preencha todos os campos.");
+      return api.post('/appointments/walk_in/', {
+        service_id: walkInService.id,
+        barber_id: walkInBarber.id,
+        client_name: walkInClientName,
+        payments: walkInPayments
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowWalkInModal(false);
+      setWalkInClientName('');
+      setWalkInService(null);
+      setWalkInBarber(null);
+      setWalkInPayments([{ method: 'pix', amount: '0' }]);
+      toast.success('Atendimento avulso registrado com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar atendimento avulso.')
+  });
+
   const handleOpenComplete = (app: Appointment) => {
     setActiveAppointment(app);
     setPayments([{ method: 'pix', amount: app.total_price }]);
@@ -460,6 +489,9 @@ export default function Agenda() {
 
   const totalPaid = payments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
   const isTotalValid = activeAppointment && Math.abs(totalPaid - parseFloat(activeAppointment.total_price)) < 0.01;
+
+  const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
+  const isWalkInValid = walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
 
   const filteredAppointments = appointments?.filter(app => {
     if (statusFilter === 'all') return true;
@@ -549,6 +581,20 @@ export default function Agenda() {
                 <CalendarOff className="w-4 h-4" /> Bloquear
               </Button>
             </div>
+
+            <Button 
+              size="sm" 
+              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#4CAF50] hover:bg-[#388E3C] text-white font-bold" 
+              onClick={() => {
+                setWalkInClientName('');
+                setWalkInService(null);
+                setWalkInBarber(me?.role === 'barber' ? me : null);
+                setWalkInPayments([{ method: 'pix', amount: '0' }]);
+                setShowWalkInModal(true);
+              }}
+            >
+              <Zap className="w-4 h-4" /> <span className="whitespace-nowrap">Encaixe / Avulso</span>
+            </Button>
 
             <Button 
               size="sm" 
@@ -1456,6 +1502,161 @@ export default function Agenda() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBlockModal(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Walk-In Modal */}
+      <Dialog open={showWalkInModal} onOpenChange={setShowWalkInModal}>
+        <DialogContent className="bg-card border-border sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Registro de Atendimento Avulso</DialogTitle>
+            <DialogDescription>
+              Registre rapidamente um serviço já realizado (encaixe/cliente avulso).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Nome do Cliente (Opcional)</Label>
+              <Input 
+                placeholder="Ex: João Silva" 
+                value={walkInClientName}
+                onChange={(e) => setWalkInClientName(e.target.value)}
+                className="bg-background border-border/50"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Serviço *</Label>
+              <Select 
+                value={walkInService?.id?.toString() || ''} 
+                onValueChange={(val) => {
+                  const s = services?.find(x => x.id.toString() === val);
+                  if (s) {
+                    setWalkInService(s);
+                    setWalkInPayments([{ method: 'pix', amount: s.price }]);
+                  }
+                }}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione o serviço" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {services?.map(s => (
+                    <SelectItem key={s.id} value={s.id.toString()}>{s.name} - {formatCurrency(s.price)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Profissional *</Label>
+              <Select 
+                value={walkInBarber?.id?.toString() || ''} 
+                onValueChange={(val) => {
+                  const b = barbers?.find(x => x.id.toString() === val);
+                  if (b) setWalkInBarber(b);
+                }}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione o barbeiro" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {barbers?.map(b => (
+                    <SelectItem key={b.id} value={b.id.toString()}>{b.first_name || b.username}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {walkInService && (
+              <div className="space-y-4 pt-4 border-t border-border/50">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Valor do Serviço:</span>
+                  <span className="font-bold text-lg">{formatCurrency(walkInService.price)}</span>
+                </div>
+
+                <div className="space-y-3">
+                  {walkInPayments.map((payment, index) => (
+                    <div key={index} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Select 
+                          value={payment.method} 
+                          onValueChange={(val) => {
+                            const newP = [...walkInPayments];
+                            newP[index] = { ...newP[index], method: val };
+                            setWalkInPayments(newP);
+                          }}
+                        >
+                          <SelectTrigger className="bg-background border-border/50 h-11">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border">
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="cash">Dinheiro</SelectItem>
+                            <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                            <SelectItem value="debit">Cartão de Débito</SelectItem>
+                            {customMethods?.filter(m => m.is_active).map(m => (
+                              <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-32 relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                        <Input 
+                          type="number" 
+                          className="pl-7 bg-background border-border/50 h-11" 
+                          value={payment.amount}
+                          onChange={(e) => {
+                            const newP = [...walkInPayments];
+                            newP[index] = { ...newP[index], amount: e.target.value };
+                            setWalkInPayments(newP);
+                          }}
+                        />
+                      </div>
+                      {walkInPayments.length > 1 && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="text-destructive h-11 w-11 shrink-0"
+                          onClick={() => setWalkInPayments(walkInPayments.filter((_, i) => i !== index))}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full gap-2 border-dashed h-11" 
+                  onClick={() => setWalkInPayments([...walkInPayments, { method: 'cash', amount: '0' }])}
+                >
+                  <Plus className="w-4 h-4" /> Adicionar forma de pagamento
+                </Button>
+
+                <div className={`p-4 rounded-lg flex justify-between items-center ${isWalkInValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                  <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                  <span className="font-bold">{formatCurrency(totalWalkInPaid)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWalkInModal(false)}>Cancelar</Button>
+            <Button 
+              className="px-6 font-bold"
+              disabled={!isWalkInValid || createWalkInMutation.isPending}
+              onClick={() => createWalkInMutation.mutate()}
+            >
+              {createWalkInMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Registrar Atendimento
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
