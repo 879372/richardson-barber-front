@@ -123,7 +123,8 @@ export default function Agenda() {
   
   // Walk-In State
   const [showWalkInModal, setShowWalkInModal] = useState(false);
-  const [walkInClientName, setWalkInClientName] = useState('');
+  const [walkInClient, setWalkInClient] = useState<any>(null);
+  const [isWalkInClientPopoverOpen, setIsWalkInClientPopoverOpen] = useState(false);
   const [walkInService, setWalkInService] = useState<any>(null);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
   const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0' }]);
@@ -178,19 +179,19 @@ export default function Agenda() {
   const { data: clients } = useQuery({
     queryKey: ['clients'],
     queryFn: async () => (await api.get<any[]>('/users/?role=client')).data,
-    enabled: showNewAppointmentModal
+    enabled: showNewAppointmentModal || showWalkInModal
   });
 
   const { data: services } = useQuery({
     queryKey: ['services'],
     queryFn: async () => (await api.get<any[]>('/services/')).data,
-    enabled: showNewAppointmentModal
+    enabled: showNewAppointmentModal || showWalkInModal
   });
 
   const { data: barbers } = useQuery({
     queryKey: ['barbers'],
     queryFn: async () => (await api.get<any[]>('/users/?role=barber')).data,
-    enabled: showNewAppointmentModal || showBlockModal
+    enabled: showNewAppointmentModal || showBlockModal || showWalkInModal
   });
 
   const { data: me } = useQuery({
@@ -443,18 +444,19 @@ export default function Agenda() {
 
   const createWalkInMutation = useMutation({
     mutationFn: async () => {
-      if (!walkInService || !walkInBarber) throw new Error("Preencha todos os campos.");
+      if (!walkInClient || !walkInService || !walkInBarber) throw new Error("Preencha todos os campos.");
       return api.post('/appointments/walk_in/', {
         service_id: walkInService.id,
         barber_id: walkInBarber.id,
-        client_name: walkInClientName,
+        client_id: walkInClient.id,
+        client_name: walkInClient.first_name,
         payments: walkInPayments
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowWalkInModal(false);
-      setWalkInClientName('');
+      setWalkInClient(null);
       setWalkInService(null);
       setWalkInBarber(null);
       setWalkInPayments([{ method: 'pix', amount: '0' }]);
@@ -491,7 +493,7 @@ export default function Agenda() {
   const isTotalValid = activeAppointment && Math.abs(totalPaid - parseFloat(activeAppointment.total_price)) < 0.01;
 
   const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
-  const isWalkInValid = walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
+  const isWalkInValid = walkInClient && walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
 
   const filteredAppointments = appointments?.filter(app => {
     if (statusFilter === 'all') return true;
@@ -586,7 +588,7 @@ export default function Agenda() {
               size="sm" 
               className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#4CAF50] hover:bg-[#388E3C] text-white font-bold" 
               onClick={() => {
-                setWalkInClientName('');
+                setWalkInClient(null);
                 setWalkInService(null);
                 setWalkInBarber(me?.role === 'barber' ? me : null);
                 setWalkInPayments([{ method: 'pix', amount: '0' }]);
@@ -1517,14 +1519,86 @@ export default function Agenda() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* Client Selection */}
             <div className="space-y-2">
-              <Label>Nome do Cliente (Opcional)</Label>
-              <Input 
-                placeholder="Ex: João Silva" 
-                value={walkInClientName}
-                onChange={(e) => setWalkInClientName(e.target.value)}
-                className="bg-background border-border/50"
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Cliente *</label>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 text-[10px] text-primary gap-1 font-bold"
+                  onClick={() => setShowQuickCreateClient(true)}
+                >
+                  <Plus className="w-3 h-3" /> NOVO CLIENTE
+                </Button>
+              </div>
+              
+              <Popover open={isWalkInClientPopoverOpen} onOpenChange={setIsWalkInClientPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isWalkInClientPopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {walkInClient
+                      ? `${walkInClient.first_name || walkInClient.username} (${walkInClient.phone || 'Sem fone'})`
+                      : "Selecionar cliente..."}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl z-50">
+                  <div className="flex items-center border-b border-border/50 px-3 py-2">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Pesquisar cliente..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {clients?.filter(c => 
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).length === 0 && (
+                      <div className="py-6 text-center text-sm text-muted-foreground">
+                        Nenhum cliente encontrado.
+                      </div>
+                    )}
+                    {clients?.filter(c => 
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).map((client) => (
+                      <div
+                        key={client.id}
+                        className={cn(
+                          "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                          walkInClient?.id === client.id && "bg-accent"
+                        )}
+                        onClick={() => {
+                          setWalkInClient(client);
+                          setIsWalkInClientPopoverOpen(false);
+                          setClientSearch('');
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            walkInClient?.id === client.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.first_name || client.username}</span>
+                          <span className="text-[10px] text-muted-foreground">{client.phone || 'Sem fone'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-2">
