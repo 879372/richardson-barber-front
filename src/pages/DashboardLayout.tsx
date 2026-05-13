@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, Settings, LogOut, Menu } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, Settings, LogOut, Menu, History } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ const sidebarItems = [
   { icon: DollarSign, label: 'Financeiro', path: '/financeiro' },
   { icon: Package, label: 'Produtos', path: '/produtos' },
   { icon: Users, label: 'Profissionais', path: '/profissionais' },
+  { icon: History, label: 'Histórico', path: '/historico', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/configuracoes' },
 ];
 
@@ -38,6 +39,7 @@ export default function DashboardLayout() {
       
       <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
         {sidebarItems.map((item) => {
+          if (item.adminOnly && user?.role !== 'admin') return null;
           const Icon = item.icon;
           return (
             <NavLink

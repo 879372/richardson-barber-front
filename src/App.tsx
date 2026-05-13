@@ -12,6 +12,7 @@ import Agenda from './pages/Agenda';
 import Financeiro from './pages/Financeiro';
 import Settings from './pages/Settings';
 import Profissionais from './pages/Profissionais';
+import Historico from './pages/Historico';
 import MyAppointments from './pages/MyAppointments';
 import { useAuthStore } from './lib/store';
 
@@ -39,6 +40,7 @@ function App() {
           <Route path="financeiro" element={<Financeiro />} />
           <Route path="produtos" element={<Products />} />
           <Route path="profissionais" element={<Profissionais />} />
+          <Route path="historico" element={<Historico />} />
           <Route path="configuracoes" element={<Settings />} />
         </Route>
       </Routes>
