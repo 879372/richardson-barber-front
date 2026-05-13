@@ -4,9 +4,8 @@ import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, ChevronLeft, ChevronRight, Scissors, ChevronDown, User, Package } from 'lucide-react';
-import { format, addMonths, subMonths } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, Scissors, ChevronDown, User, Package } from 'lucide-react';
+import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -58,7 +57,14 @@ const methodColors: Record<string, string> = {
 
 export default function Financeiro() {
   const queryClient = useQueryClient();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  
+  // Set defaults to current month
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+  const [startDate, setStartDate] = useState(format(firstDay, 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(lastDay, 'yyyy-MM-dd'));
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
   
@@ -68,13 +74,10 @@ export default function Financeiro() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [category, setCategory] = useState<'fixed' | 'variable'>('variable');
 
-  const month = currentDate.getMonth() + 1;
-  const year = currentDate.getFullYear();
-
   const { data: summary, isLoading } = useQuery({
-    queryKey: ['financial-summary', month, year],
+    queryKey: ['financial-summary', startDate, endDate],
     queryFn: async () => {
-      const res = await api.get<FinancialSummary>(`/financial-summary/?month=${month}&year=${year}`);
+      const res = await api.get<FinancialSummary>(`/financial-summary/?start_date=${startDate}&end_date=${endDate}`);
       return res.data;
     },
   });
@@ -102,8 +105,10 @@ export default function Financeiro() {
     window.print();
   };
 
-  const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
-  const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
+  const setThisMonth = () => {
+    setStartDate(format(firstDay, 'yyyy-MM-dd'));
+    setEndDate(format(lastDay, 'yyyy-MM-dd'));
+  };
 
   const stats = [
     {
@@ -160,15 +165,28 @@ export default function Financeiro() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between bg-card/50 p-4 rounded-2xl border border-border/50 print:hidden">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={prevMonth}><ChevronLeft className="w-5 h-5" /></Button>
-          <div className="text-lg font-semibold uppercase tracking-tight w-40 text-center">
-            {format(currentDate, 'MMMM yyyy', { locale: ptBR })}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-card/50 p-4 rounded-2xl border border-border/50 gap-4 print:hidden">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
+          <div className="flex flex-col gap-1.5 w-full sm:w-44">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Data Inicial</label>
+            <Input 
+              type="date" 
+              value={startDate} 
+              onChange={(e) => setStartDate(e.target.value)}
+              className="bg-background border-border/50 h-9"
+            />
           </div>
-          <Button variant="ghost" size="icon" onClick={nextMonth}><ChevronRight className="w-5 h-5" /></Button>
+          <div className="flex flex-col gap-1.5 w-full sm:w-44">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground ml-1">Data Final</label>
+            <Input 
+              type="date" 
+              value={endDate} 
+              onChange={(e) => setEndDate(e.target.value)}
+              className="bg-background border-border/50 h-9"
+            />
+          </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>Mês Atual</Button>
+        <Button variant="outline" size="sm" className="w-full sm:w-auto h-9" onClick={setThisMonth}>Mês Atual</Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-5">
