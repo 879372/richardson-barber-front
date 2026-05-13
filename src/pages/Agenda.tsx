@@ -169,6 +169,12 @@ export default function Agenda() {
   const [blockBarber, setBlockBarber] = useState<any>(null);
   const [blockReason, setBlockReason] = useState('');
 
+  // Edit Appointment State
+  const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<any>(null);
+  const [editService, setEditService] = useState<any>(null);
+  const [editPayments, setEditPayments] = useState<{ method: string; amount: string }[]>([]);
+
   const queryClient = useQueryClient();
 
   const { data: customMethods } = useQuery({
@@ -439,6 +445,33 @@ export default function Agenda() {
     },
     onError: () => toast.error('Erro ao cancelar agendamentos recorrentes.'),
   });
+
+  const updateAppointmentMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return api.patch(`/appointments/${id}/`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowEditAppointmentModal(false);
+      setEditingAppointment(null);
+      toast.success('Agendamento atualizado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao atualizar agendamento.'),
+  });
+
+  const handleEditAppointment = (app: any) => {
+    setEditingAppointment(app);
+    const srv = services?.find((s: any) => s.id === app.service || s.name === app.service_name);
+    setEditService(srv || null);
+    
+    if (app.status === 'completed') {
+      setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount })) || [{ method: 'pix', amount: app.total_price }]);
+    } else {
+      setEditPayments([]);
+    }
+    
+    setShowEditAppointmentModal(true);
+  };
 
   const completeWithPaymentsMutation = useMutation({
     mutationFn: async ({ id, payments }: { id: number; payments: { method: string; amount: string }[] }) => {
@@ -862,6 +895,9 @@ export default function Agenda() {
                             <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
                               Ações do Agendamento
                             </div>
+                            <DropdownMenuItem onClick={() => handleEditAppointment(item)}>
+                              <RefreshCw className="w-4 h-4 mr-2" /> Editar Agendamento
+                            </DropdownMenuItem>
                             {item.status === 'pending' && (
                               <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}>
                                 <Check className="w-4 h-4 mr-2 text-blue-500" /> Confirmar
@@ -995,6 +1031,124 @@ export default function Agenda() {
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Finalizar Atendimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Appointment Modal */}
+      <Dialog open={showEditAppointmentModal} onOpenChange={setShowEditAppointmentModal}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Agendamento</DialogTitle>
+            <DialogDescription>
+              Altere as informações do agendamento de <strong>{editingAppointment?.client_name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Serviço</Label>
+              <Select 
+                value={editService?.id?.toString()} 
+                onValueChange={(val) => setEditService(services?.find((s: any) => s.id.toString() === val))}
+              >
+                <SelectTrigger className="bg-background border-border/50 h-11">
+                  <SelectValue placeholder="Selecione o serviço" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {services?.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id.toString()}>{s.name} - {formatCurrency(s.price)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {editingAppointment?.status === 'completed' && (
+               <div className="space-y-4 pt-2 border-t border-border/50">
+                 <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
+                 <div className="space-y-3">
+                   {editPayments.map((payment: any, index: number) => (
+                     <div key={index} className="flex gap-2 items-center">
+                       <div className="flex-1">
+                         <Select 
+                           value={payment.method} 
+                           onValueChange={(val) => {
+                             const newPayments = [...editPayments];
+                             newPayments[index].method = val;
+                             setEditPayments(newPayments);
+                           }}
+                         >
+                           <SelectTrigger className="bg-background border-border/50 h-10">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent className="bg-card border-border">
+                             <SelectItem value="pix">PIX</SelectItem>
+                             <SelectItem value="cash">Dinheiro</SelectItem>
+                             <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                             <SelectItem value="debit">Cartão de Débito</SelectItem>
+                             {customMethods?.filter(m => m.is_active).map(m => (
+                               <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                       </div>
+                       <div className="w-28 relative">
+                         <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                         <Input 
+                           type="number" 
+                           className="pl-6 bg-background border-border/50 h-10" 
+                           value={payment.amount}
+                           onChange={(e) => {
+                             const newPayments = [...editPayments];
+                             newPayments[index].amount = e.target.value;
+                             setEditPayments(newPayments);
+                           }}
+                         />
+                       </div>
+                       {editPayments.length > 1 && (
+                         <Button 
+                           variant="ghost" 
+                           size="icon" 
+                           className="text-destructive h-10 w-10"
+                           onClick={() => setEditPayments(editPayments.filter((_, i) => i !== index))}
+                         >
+                           <Trash2 className="w-4 h-4" />
+                         </Button>
+                       )}
+                     </div>
+                   ))}
+                   <Button 
+                     variant="outline" 
+                     size="sm" 
+                     className="w-full gap-2 border-dashed h-10 text-xs" 
+                     onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0' }])}
+                   >
+                     <Plus className="w-3 h-3" /> Adicionar Pagamento
+                   </Button>
+                 </div>
+               </div>
+             )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditAppointmentModal(false)}>Cancelar</Button>
+            <Button 
+               className="px-6 font-bold"
+               disabled={!editService || updateAppointmentMutation.isPending}
+               onClick={() => {
+                 updateAppointmentMutation.mutate({
+                   id: editingAppointment.id,
+                   data: {
+                     service: editService.id,
+                     payments: editingAppointment.status === 'completed' ? editPayments : undefined,
+                     total_price: editingAppointment.status === 'completed' ? editPayments.reduce((acc: number, p: any) => acc + parseFloat(p.amount || '0'), 0) : undefined
+                   }
+                 });
+               }}
+             >
+              {updateAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
