@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   History, 
-  User, 
   Calendar, 
   Clock, 
   ChevronRight, 
@@ -106,7 +105,7 @@ export default function Historico() {
             <p className="text-muted-foreground">Nenhum registro encontrado para sua busca.</p>
           </div>
         ) : (
-          filteredHistory?.map((record, index) => (
+          filteredHistory?.map((record) => (
             <div key={record.history_id} className="relative md:pl-16 group">
               {/* Timeline dot */}
               <div className="absolute left-5 top-6 w-3 h-3 rounded-full bg-background border-2 border-primary hidden md:block z-10 group-hover:scale-125 transition-transform shadow-[0_0_10px_rgba(var(--primary),0.5)]" />
