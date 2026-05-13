@@ -59,6 +59,7 @@ type Appointment = {
   status: string;
   total_price: string;
   notes?: string;
+  payments?: { method: string; amount: string }[];
 };
 
 type TimeBlock = {
@@ -174,6 +175,8 @@ export default function Agenda() {
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [editService, setEditService] = useState<any>(null);
   const [editPayments, setEditPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [isFetchingEditData, setIsFetchingEditData] = useState(false);
+  const [isFetchingAppData, setIsFetchingAppData] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -252,9 +255,6 @@ export default function Agenda() {
     enabled: !!newAppBarber && !!selectedDate && !!newAppService && showNewAppointmentModal,
   });
 
-  const [customDates, setCustomDates] = useState<Date[]>([]);
-  const [unavailableDates, setUnavailableDates] = useState<string[]>([]);
-
   const checkDatesAvailability = async (dates: Date[]) => {
     if (!newAppBarber || !newAppService || !newAppTime || dates.length === 0) return;
     
@@ -276,6 +276,9 @@ export default function Agenda() {
       console.error("Erro ao verificar disponibilidade das datas", error);
     }
   };
+
+  const [customDates, setCustomDates] = useState<Date[]>([]);
+  const [unavailableDates, setUnavailableDates] = useState<string[]>([]);
 
   const getRecurrenceDates = () => {
     if (!selectedDate || !newAppTime) return [];
@@ -459,18 +462,28 @@ export default function Agenda() {
     onError: () => toast.error('Erro ao atualizar agendamento.'),
   });
 
-  const handleEditAppointment = (app: any) => {
-    setEditingAppointment(app);
-    const srv = services?.find((s: any) => s.id === app.service || s.name === app.service_name);
-    setEditService(srv || null);
-    
-    if (app.status === 'completed') {
-      setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount })) || [{ method: 'pix', amount: app.total_price }]);
-    } else {
-      setEditPayments([]);
-    }
-    
+  const handleEditAppointment = async (appId: number) => {
     setShowEditAppointmentModal(true);
+    setIsFetchingEditData(true);
+    try {
+      const res = await api.get<Appointment>(`/appointments/${appId}/`);
+      const app = res.data;
+      
+      setEditingAppointment(app);
+      const srv = services?.find((s: any) => s.id === app.service || s.name === app.service_name);
+      setEditService(srv || null);
+      
+      if (app.status === 'completed') {
+        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount })) || [{ method: 'pix', amount: app.total_price }]);
+      } else {
+        setEditPayments([]);
+      }
+    } catch (err) {
+      toast.error('Erro ao buscar dados do agendamento.');
+      setShowEditAppointmentModal(false);
+    } finally {
+      setIsFetchingEditData(false);
+    }
   };
 
   const completeWithPaymentsMutation = useMutation({
@@ -536,10 +549,20 @@ export default function Agenda() {
     onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar atendimento avulso.')
   });
 
-  const handleOpenComplete = (app: Appointment) => {
-    setActiveAppointment(app);
-    setPayments([{ method: 'pix', amount: app.total_price }]);
+  const handleOpenComplete = async (appId: number) => {
     setShowCompleteModal(true);
+    setIsFetchingAppData(true);
+    try {
+      const res = await api.get<Appointment>(`/appointments/${appId}/`);
+      const app = res.data;
+      setActiveAppointment(app);
+      setPayments([{ method: 'pix', amount: app.total_price }]);
+    } catch (err) {
+      toast.error('Erro ao buscar dados do agendamento.');
+      setShowCompleteModal(false);
+    } finally {
+      setIsFetchingAppData(false);
+    }
   };
 
   const addPaymentRow = () => {
@@ -895,7 +918,7 @@ export default function Agenda() {
                             <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
                               Ações do Agendamento
                             </div>
-                            <DropdownMenuItem onClick={() => handleEditAppointment(item)}>
+                            <DropdownMenuItem onClick={() => handleEditAppointment(item.id)}>
                               <RefreshCw className="w-4 h-4 mr-2" /> Editar Agendamento
                             </DropdownMenuItem>
                             {item.status === 'pending' && (
@@ -904,7 +927,7 @@ export default function Agenda() {
                               </DropdownMenuItem>
                             )}
                             {item.status === 'confirmed' && (
-                              <DropdownMenuItem onClick={() => handleOpenComplete(item)} className="font-bold text-green-500">
+                              <DropdownMenuItem onClick={() => handleOpenComplete(item.id)} className="font-bold text-green-500">
                                 <Check className="w-4 h-4 mr-2" /> Concluir Atendimento
                               </DropdownMenuItem>
                             )}
@@ -947,83 +970,99 @@ export default function Agenda() {
         </div>
       </div>
 
-      {/* Split Payment Modal */}
       {/* Service Completion Modal */}
       <Dialog open={showCompleteModal} onOpenChange={setShowCompleteModal}>
         <DialogContent className="bg-card border-border sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Concluir Atendimento</DialogTitle>
             <DialogDescription>
-              Registre as formas de pagamento para o serviço de <strong>{activeAppointment?.service_name}</strong>.
+              {isFetchingAppData ? (
+                <div className="h-4 w-48 bg-muted animate-pulse rounded mt-1" />
+              ) : (
+                <>Registre as formas de pagamento para o serviço de <strong>{activeAppointment?.service_name}</strong>.</>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Valor do Serviço:</span>
-              <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
-            </div>
-
-            <div className="space-y-3">
-              {payments.map((payment, index) => (
-                <div key={index} className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <Select 
-                      value={payment.method} 
-                      onValueChange={(val) => updatePayment(index, 'method', val)}
-                    >
-                      <SelectTrigger className="bg-background border-border/50 h-11">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-card border-border">
-                        <SelectItem value="pix">PIX</SelectItem>
-                        <SelectItem value="cash">Dinheiro</SelectItem>
-                        <SelectItem value="credit">Cartão de Crédito</SelectItem>
-                        <SelectItem value="debit">Cartão de Débito</SelectItem>
-                        {customMethods?.filter(m => m.is_active).map(m => (
-                          <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="w-32 relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <Input 
-                      type="number" 
-                      className="pl-7 bg-background border-border/50 h-11" 
-                      value={payment.amount}
-                      onChange={(e) => updatePayment(index, 'amount', e.target.value)}
-                    />
-                  </div>
-                  {payments.length > 1 && (
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="text-destructive h-11 w-11"
-                      onClick={() => removePaymentRow(index)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  )}
+            {isFetchingAppData ? (
+              <div className="space-y-4">
+                <div className="flex justify-between">
+                  <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                  <div className="h-6 w-20 bg-muted animate-pulse rounded" />
                 </div>
-              ))}
-            </div>
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Valor do Serviço:</span>
+                  <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
+                </div>
 
-            <Button variant="outline" size="sm" className="w-full gap-2 border-dashed h-11" onClick={addPaymentRow}>
-              <Plus className="w-4 h-4" /> Adicionar forma de pagamento
-            </Button>
+                <div className="space-y-3">
+                  {payments.map((payment, index) => (
+                    <div key={index} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Select 
+                          value={payment.method} 
+                          onValueChange={(val) => updatePayment(index, 'method', val)}
+                        >
+                          <SelectTrigger className="bg-background border-border/50 h-11">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border">
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="cash">Dinheiro</SelectItem>
+                            <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                            <SelectItem value="debit">Cartão de Débito</SelectItem>
+                            {customMethods?.filter(m => m.is_active).map(m => (
+                              <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-32 relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                        <Input 
+                          type="number" 
+                          className="pl-7 bg-background border-border/50 h-11" 
+                          value={payment.amount}
+                          onChange={(e) => updatePayment(index, 'amount', e.target.value)}
+                        />
+                      </div>
+                      {payments.length > 1 && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="text-destructive h-11 w-11"
+                          onClick={() => removePaymentRow(index)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
 
-            <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-              <span className="text-sm font-medium">Soma dos pagamentos:</span>
-              <span className="font-bold">{formatCurrency(totalPaid)}</span>
-            </div>
+                <Button variant="outline" size="sm" className="w-full gap-2 border-dashed h-11" onClick={addPaymentRow}>
+                  <Plus className="w-4 h-4" /> Adicionar forma de pagamento
+                </Button>
+
+                <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                  <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                  <span className="font-bold">{formatCurrency(totalPaid)}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCompleteModal(false)}>Cancelar</Button>
             <Button 
               className="px-6 font-bold"
-              disabled={!isTotalValid || completeWithPaymentsMutation.isPending}
+              disabled={isFetchingAppData || !isTotalValid || completeWithPaymentsMutation.isPending}
               onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({ 
                 id: activeAppointment.id, 
                 payments 
@@ -1042,111 +1081,126 @@ export default function Agenda() {
           <DialogHeader>
             <DialogTitle>Editar Agendamento</DialogTitle>
             <DialogDescription>
-              Altere as informações do agendamento de <strong>{editingAppointment?.client_name}</strong>.
+              {isFetchingEditData ? (
+                <div className="h-4 w-48 bg-muted animate-pulse rounded mt-1" />
+              ) : (
+                <>Altere as informações do agendamento de <strong>{editingAppointment?.client_name}</strong>.</>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Serviço</Label>
-              <Select 
-                value={editService?.id?.toString()} 
-                onValueChange={(val) => setEditService(services?.find((s: any) => s.id.toString() === val))}
-              >
-                <SelectTrigger className="bg-background border-border/50 h-11">
-                  <SelectValue placeholder="Selecione o serviço" />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border">
-                  {services?.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id.toString()}>{s.name} - {formatCurrency(s.price)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isFetchingEditData ? (
+              <div className="space-y-4">
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Serviço</Label>
+                  <Select 
+                    value={editService?.id?.toString()} 
+                    onValueChange={(val) => setEditService(services?.find((s: any) => s.id.toString() === val))}
+                  >
+                    <SelectTrigger className="bg-background border-border/50 h-11">
+                      <SelectValue placeholder="Selecione o serviço" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      {services?.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id.toString()}>{s.name} - {formatCurrency(s.price)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {editingAppointment?.status === 'completed' && (
-               <div className="space-y-4 pt-2 border-t border-border/50">
-                 <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
-                 <div className="space-y-3">
-                   {editPayments.map((payment: any, index: number) => (
-                     <div key={index} className="flex gap-2 items-center">
-                       <div className="flex-1">
-                         <Select 
-                           value={payment.method} 
-                           onValueChange={(val) => {
-                             const newPayments = [...editPayments];
-                             newPayments[index].method = val;
-                             setEditPayments(newPayments);
-                           }}
-                         >
-                           <SelectTrigger className="bg-background border-border/50 h-10">
-                             <SelectValue />
-                           </SelectTrigger>
-                           <SelectContent className="bg-card border-border">
-                             <SelectItem value="pix">PIX</SelectItem>
-                             <SelectItem value="cash">Dinheiro</SelectItem>
-                             <SelectItem value="credit">Cartão de Crédito</SelectItem>
-                             <SelectItem value="debit">Cartão de Débito</SelectItem>
-                             {customMethods?.filter(m => m.is_active).map(m => (
-                               <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                             ))}
-                           </SelectContent>
-                         </Select>
-                       </div>
-                       <div className="w-28 relative">
-                         <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                         <Input 
-                           type="number" 
-                           className="pl-6 bg-background border-border/50 h-10" 
-                           value={payment.amount}
-                           onChange={(e) => {
-                             const newPayments = [...editPayments];
-                             newPayments[index].amount = e.target.value;
-                             setEditPayments(newPayments);
-                           }}
-                         />
-                       </div>
-                       {editPayments.length > 1 && (
-                         <Button 
-                           variant="ghost" 
-                           size="icon" 
-                           className="text-destructive h-10 w-10"
-                           onClick={() => setEditPayments(editPayments.filter((_, i) => i !== index))}
-                         >
-                           <Trash2 className="w-4 h-4" />
-                         </Button>
-                       )}
-                     </div>
-                   ))}
-                   <Button 
-                     variant="outline" 
-                     size="sm" 
-                     className="w-full gap-2 border-dashed h-10 text-xs" 
-                     onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0' }])}
-                   >
-                     <Plus className="w-3 h-3" /> Adicionar Pagamento
-                   </Button>
-                 </div>
-               </div>
-             )}
+                {editingAppointment?.status === 'completed' && (
+                  <div className="space-y-4 pt-2 border-t border-border/50">
+                    <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
+                    <div className="space-y-3">
+                      {editPayments.map((payment: any, index: number) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <Select 
+                              value={payment.method} 
+                              onValueChange={(val) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].method = val;
+                                setEditPayments(newPayments);
+                              }}
+                            >
+                              <SelectTrigger className="bg-background border-border/50 h-10">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-card border-border">
+                                <SelectItem value="pix">PIX</SelectItem>
+                                <SelectItem value="cash">Dinheiro</SelectItem>
+                                <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                                <SelectItem value="debit">Cartão de Débito</SelectItem>
+                                {customMethods?.filter(m => m.is_active).map(m => (
+                                  <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="w-28 relative">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                            <Input 
+                              type="number" 
+                              className="pl-6 bg-background border-border/50 h-10" 
+                              value={payment.amount}
+                              onChange={(e) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].amount = e.target.value;
+                                setEditPayments(newPayments);
+                              }}
+                            />
+                          </div>
+                          {editPayments.length > 1 && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-destructive h-10 w-10"
+                              onClick={() => setEditPayments(editPayments.filter((_, i) => i !== index))}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full gap-2 border-dashed h-10 text-xs" 
+                        onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0' }])}
+                      >
+                        <Plus className="w-3 h-3" /> Adicionar Pagamento
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditAppointmentModal(false)}>Cancelar</Button>
             <Button 
-               className="px-6 font-bold"
-               disabled={!editService || updateAppointmentMutation.isPending}
-               onClick={() => {
-                 updateAppointmentMutation.mutate({
-                   id: editingAppointment.id,
-                   data: {
-                     service: editService.id,
-                     payments: editingAppointment.status === 'completed' ? editPayments : undefined,
-                     total_price: editingAppointment.status === 'completed' ? editPayments.reduce((acc: number, p: any) => acc + parseFloat(p.amount || '0'), 0) : undefined
-                   }
-                 });
-               }}
-             >
+              className="px-6 font-bold"
+              disabled={isFetchingEditData || !editService || updateAppointmentMutation.isPending}
+              onClick={() => {
+                updateAppointmentMutation.mutate({
+                  id: editingAppointment.id,
+                  data: {
+                    service: editService.id,
+                    payments: editingAppointment.status === 'completed' ? editPayments : undefined,
+                    total_price: editingAppointment.status === 'completed' 
+                      ? editPayments.reduce((acc: number, p: any) => acc + parseFloat(p.amount || '0'), 0) 
+                      : editService.price
+                  }
+                });
+              }}
+            >
               {updateAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Salvar Alterações
             </Button>
