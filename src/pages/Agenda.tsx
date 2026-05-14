@@ -116,6 +116,17 @@ const maskPhone = (v: string) => {
   return v;
 };
 
+const maskCurrency = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (!v) return "0,00";
+  const val = parseInt(v) / 100;
+  return val.toFixed(2).replace('.', ',');
+};
+
+const unmaskCurrency = (v: string) => {
+  return v.replace(',', '.');
+};
+
 
 
 export default function Agenda() {
@@ -133,7 +144,7 @@ export default function Agenda() {
   const [showSaleQuestion, setShowSaleQuestion] = useState(false);
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
   const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
-  const [saleDiscount, setSaleDiscount] = useState<string>('0');
+  const [saleDiscount, setSaleDiscount] = useState<string>('0,00');
   
   // Walk-In State
   const [showWalkInModal, setShowWalkInModal] = useState(false);
@@ -141,7 +152,7 @@ export default function Agenda() {
   const [isWalkInClientPopoverOpen, setIsWalkInClientPopoverOpen] = useState(false);
   const [walkInService, setWalkInService] = useState<any>(null);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
-  const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0' }]);
+  const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0,00' }]);
   const [walkInTime, setWalkInTime] = useState<string>('');
   
   // Timeline State
@@ -178,12 +189,12 @@ export default function Agenda() {
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [editService, setEditService] = useState<any>(null);
   const [editPayments, setEditPayments] = useState<{ method: string; amount: string }[]>([]);
-  const [editDiscount, setEditDiscount] = useState<string>('0');
-  const [editTip, setEditTip] = useState<string>('0');
+  const [editDiscount, setEditDiscount] = useState<string>('');
+  const [editTip, setEditTip] = useState<string>('');
   const [isFetchingEditData, setIsFetchingEditData] = useState(false);
   const [isFetchingAppData, setIsFetchingAppData] = useState(false);
-  const [completeDiscount, setCompleteDiscount] = useState<string>('0');
-  const [completeTip, setCompleteTip] = useState<string>('0');
+  const [completeDiscount, setCompleteDiscount] = useState<string>('0,00');
+  const [completeTip, setCompleteTip] = useState<string>('0,00');
 
   const queryClient = useQueryClient();
 
@@ -481,13 +492,13 @@ export default function Agenda() {
       setEditService(srv || null);
       
       if (app.status === 'completed') {
-        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount })) || [{ method: 'pix', amount: app.total_price }]);
-        setEditDiscount(app.discount || '0');
-        setEditTip(app.tip || '0');
+        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ',') })) || [{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
+        setEditDiscount(app.discount?.replace('.', ',') || '0,00');
+        setEditTip(app.tip?.replace('.', ',') || '0,00');
       } else {
         setEditPayments([]);
-        setEditDiscount('0');
-        setEditTip('0');
+        setEditDiscount('0,00');
+        setEditTip('0,00');
       }
     } catch (err) {
       toast.error('Erro ao buscar dados do agendamento.');
@@ -499,15 +510,19 @@ export default function Agenda() {
 
   const completeWithPaymentsMutation = useMutation({
     mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string }[]; discount: string; tip: string }) => {
-      return api.post(`/appointments/${id}/complete_with_payments/`, { payments, discount, tip });
+      return api.post(`/appointments/${id}/complete_with_payments/`, { 
+        payments: payments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })), 
+        discount: unmaskCurrency(discount) || '0', 
+        tip: unmaskCurrency(tip) || '0' 
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowCompleteModal(false);
       // Don't clear activeAppointment yet, we might need it for the sale question
       setPayments([]);
-      setCompleteDiscount('0');
-      setCompleteTip('0');
+      setCompleteDiscount('0,00');
+      setCompleteTip('0,00');
       toast.success('Atendimento concluído com sucesso!');
       setShowSaleQuestion(true);
     },
@@ -524,6 +539,7 @@ export default function Agenda() {
       setActiveAppointment(null);
       setSelectedProducts([]);
       setSalePayments([]);
+      setSaleDiscount('0,00');
       toast.success('Venda registrada com sucesso!');
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar venda.')
@@ -540,7 +556,7 @@ export default function Agenda() {
         barber_id: walkInBarber.id,
         client_id: walkInClient.id,
         client_name: walkInClient.first_name,
-        payments: walkInPayments,
+        payments: walkInPayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
         date_time: dateTime
       });
     },
@@ -555,7 +571,7 @@ export default function Agenda() {
       setWalkInClient(null);
       setWalkInService(null);
       setWalkInBarber(null);
-      setWalkInPayments([{ method: 'pix', amount: '0' }]);
+      setWalkInPayments([{ method: 'pix', amount: '0,00' }]);
       setWalkInTime('');
       toast.success('Atendimento avulso registrado com sucesso!');
     },
@@ -569,9 +585,9 @@ export default function Agenda() {
       const res = await api.get<Appointment>(`/appointments/${appId}/`);
       const app = res.data;
       setActiveAppointment(app);
-      setPayments([{ method: 'pix', amount: app.total_price }]);
-      setCompleteDiscount(app.discount || '0');
-      setCompleteTip(app.tip || '0');
+      setPayments([{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
+      setCompleteDiscount(app.discount?.replace('.', ',') || '0,00');
+      setCompleteTip(app.tip?.replace('.', ',') || '0,00');
     } catch (err) {
       toast.error('Erro ao buscar dados do agendamento.');
       setShowCompleteModal(false);
@@ -581,7 +597,7 @@ export default function Agenda() {
   };
 
   const addPaymentRow = () => {
-    setPayments([...payments, { method: 'cash', amount: '0' }]);
+    setPayments([...payments, { method: 'cash', amount: '0,00' }]);
   };
 
   const removePaymentRow = (index: number) => {
@@ -595,13 +611,13 @@ export default function Agenda() {
   };
 
   const totalProducts = selectedProducts.reduce((acc, curr) => acc + (parseFloat(curr.unit_price) * curr.quantity), 0);
-  const totalSalePaid = salePayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
-  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - parseFloat(saleDiscount || '0'))) < 0.01;
+  const totalSalePaid = salePayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))) < 0.01;
 
-  const totalPaid = payments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
-  const isTotalValid = activeAppointment && Math.abs(totalPaid - (parseFloat(activeAppointment.total_price) - parseFloat(completeDiscount || '0') + parseFloat(completeTip || '0'))) < 0.01;
+  const totalPaid = payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+  const isTotalValid = activeAppointment && Math.abs(totalPaid - (parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) + (parseFloat(unmaskCurrency(completeTip)) || 0))) < 0.01;
 
-  const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
+  const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
   const isWalkInValid = walkInClient && walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
 
   const filteredAppointments = appointments || [];
@@ -1022,10 +1038,10 @@ export default function Agenda() {
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <Input 
-                        type="number" 
+                        type="text" 
                         className="pl-7 bg-background border-border/50 h-10" 
                         value={completeDiscount}
-                        onChange={(e) => setCompleteDiscount(e.target.value)}
+                        onChange={(e) => setCompleteDiscount(maskCurrency(e.target.value))}
                       />
                     </div>
                   </div>
@@ -1034,10 +1050,10 @@ export default function Agenda() {
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <Input 
-                        type="number" 
+                        type="text" 
                         className="pl-7 bg-background border-border/50 h-10" 
                         value={completeTip}
-                        onChange={(e) => setCompleteTip(e.target.value)}
+                        onChange={(e) => setCompleteTip(maskCurrency(e.target.value))}
                       />
                     </div>
                   </div>
@@ -1068,10 +1084,10 @@ export default function Agenda() {
                       <div className="w-32 relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                         <Input 
-                          type="number" 
+                          type="text" 
                           className="pl-7 bg-background border-border/50 h-11" 
                           value={payment.amount}
-                          onChange={(e) => updatePayment(index, 'amount', e.target.value)}
+                          onChange={(e) => updatePayment(index, 'amount', maskCurrency(e.target.value))}
                         />
                       </div>
                       {payments.length > 1 && (
@@ -1108,8 +1124,8 @@ export default function Agenda() {
               onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({ 
                 id: activeAppointment.id, 
                 payments,
-                discount: completeDiscount,
-                tip: completeTip
+                discount: completeDiscount || '0',
+                tip: completeTip || '0'
               })}
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -1166,10 +1182,10 @@ export default function Agenda() {
                         <div className="relative">
                           <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                           <Input 
-                            type="number" 
+                            type="text" 
                             className="pl-6 bg-background border-border/50 h-10" 
                             value={editDiscount}
-                            onChange={(e) => setEditDiscount(e.target.value)}
+                            onChange={(e) => setEditDiscount(maskCurrency(e.target.value))}
                           />
                         </div>
                       </div>
@@ -1178,10 +1194,10 @@ export default function Agenda() {
                         <div className="relative">
                           <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                           <Input 
-                            type="number" 
+                            type="text" 
                             className="pl-6 bg-background border-border/50 h-10" 
                             value={editTip}
-                            onChange={(e) => setEditTip(e.target.value)}
+                            onChange={(e) => setEditTip(maskCurrency(e.target.value))}
                           />
                         </div>
                       </div>
@@ -1217,12 +1233,12 @@ export default function Agenda() {
                           <div className="w-28 relative">
                             <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                             <Input 
-                              type="number" 
+                              type="text" 
                               className="pl-6 bg-background border-border/50 h-10" 
                               value={payment.amount}
                               onChange={(e) => {
                                 const newPayments = [...editPayments];
-                                newPayments[index].amount = e.target.value;
+                                newPayments[index].amount = maskCurrency(e.target.value);
                                 setEditPayments(newPayments);
                               }}
                             />
@@ -1264,12 +1280,12 @@ export default function Agenda() {
                   id: editingAppointment.id,
                   data: {
                     service: editService.id,
-                    payments: editingAppointment.status === 'completed' ? editPayments : undefined,
+                    payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
                     total_price: editingAppointment.status === 'completed' 
-                      ? editPayments.reduce((acc: number, p: any) => acc + parseFloat(p.amount || '0'), 0) 
+                      ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0) 
                       : editService.price,
-                    discount: editingAppointment.status === 'completed' ? editDiscount : undefined,
-                    tip: editingAppointment.status === 'completed' ? editTip : undefined
+                    discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
+                    tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
                   }
                 });
               }}
@@ -1305,7 +1321,7 @@ export default function Agenda() {
               className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20" 
               onClick={() => {
                 setShowSaleQuestion(false);
-                setSalePayments([{ method: 'pix', amount: '0' }]);
+                setSalePayments([{ method: 'pix', amount: '0,00' }]);
                 setSelectedProducts([]);
                 setShowProductSaleModal(true);
               }}
@@ -1359,8 +1375,8 @@ export default function Agenda() {
                             setProductSearch('');
                             // Auto-update payment if only one
                             if (salePayments.length === 1) {
-                              const newTotal = (totalProducts + parseFloat(product.sale_price)) - parseFloat(saleDiscount || '0');
-                              setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2) }]);
+                              const newTotal = (totalProducts + parseFloat(product.sale_price)) - (parseFloat(unmaskCurrency(saleDiscount)) || 0);
+                              setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
                             }
                           }}
                         >
@@ -1442,15 +1458,15 @@ export default function Agenda() {
                   <div className="w-24 relative">
                     <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                     <Input 
-                      type="number" 
+                      type="text" 
                       className="pl-6 bg-background border-border/50 h-8 rounded-lg text-right font-bold text-xs" 
                       value={saleDiscount}
                       onChange={(e) => {
-                        const val = e.target.value;
+                        const val = maskCurrency(e.target.value);
                         setSaleDiscount(val);
                         if (salePayments.length === 1) {
-                          const newTotal = totalProducts - parseFloat(val || '0');
-                          setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2) }]);
+                          const newTotal = totalProducts - (parseFloat(unmaskCurrency(val)) || 0);
+                          setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
                         }
                       }}
                     />
@@ -1458,7 +1474,7 @@ export default function Agenda() {
                 </div>
                 <div className="flex justify-between items-center pt-2 border-t border-border/20">
                   <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Total à Pagar:</span>
-                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts - parseFloat(saleDiscount || '0'))}</span>
+                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))}</span>
                 </div>
               </div>
 
@@ -1491,12 +1507,12 @@ export default function Agenda() {
                     <div className="w-32 relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <Input 
-                        type="number" 
+                        type="text" 
                         className="pl-8 bg-background border-border/50 h-11 rounded-xl font-bold" 
                         value={payment.amount}
                         onChange={(e) => {
                           const newP = [...salePayments];
-                          newP[index].amount = e.target.value;
+                          newP[index].amount = maskCurrency(e.target.value);
                           setSalePayments(newP);
                         }}
                       />
@@ -1520,7 +1536,7 @@ export default function Agenda() {
                   className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50" 
                   onClick={() => {
                     const remaining = totalProducts - totalSalePaid;
-                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2) : '0' }]);
+                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2).replace('.', ',') : '0,00' }]);
                   }}
                 >
                   <Plus className="w-3.5 h-3.5" /> Adicionar Outra Forma
@@ -1555,8 +1571,8 @@ export default function Agenda() {
                 appointment: activeAppointment?.id,
                 client: activeAppointment?.client,
                 products: selectedProducts,
-                payments: salePayments,
-                discount: saleDiscount
+                payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                discount: unmaskCurrency(saleDiscount) || '0'
               })}
             >
               {createSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -2079,7 +2095,7 @@ export default function Agenda() {
                   const s = services?.find(x => x.id.toString() === val);
                   if (s) {
                     setWalkInService(s);
-                    setWalkInPayments([{ method: 'pix', amount: s.price }]);
+                      setWalkInPayments([{ method: 'pix', amount: s.price.replace('.', ',') }]);
                   }
                 }}
               >
@@ -2168,12 +2184,12 @@ export default function Agenda() {
                       <div className="w-32 relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                         <Input 
-                          type="number" 
+                          type="text" 
                           className="pl-7 bg-background border-border/50 h-11" 
                           value={payment.amount}
                           onChange={(e) => {
                             const newP = [...walkInPayments];
-                            newP[index] = { ...newP[index], amount: e.target.value };
+                            newP[index] = { ...newP[index], amount: maskCurrency(e.target.value) };
                             setWalkInPayments(newP);
                           }}
                         />
