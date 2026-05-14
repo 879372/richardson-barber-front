@@ -131,6 +131,7 @@ export default function Agenda() {
   const [showSaleQuestion, setShowSaleQuestion] = useState(false);
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
   const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
+  const [saleDiscount, setSaleDiscount] = useState<string>('0');
   
   // Walk-In State
   const [showWalkInModal, setShowWalkInModal] = useState(false);
@@ -175,8 +176,12 @@ export default function Agenda() {
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [editService, setEditService] = useState<any>(null);
   const [editPayments, setEditPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [editDiscount, setEditDiscount] = useState<string>('0');
+  const [editTip, setEditTip] = useState<string>('0');
   const [isFetchingEditData, setIsFetchingEditData] = useState(false);
   const [isFetchingAppData, setIsFetchingAppData] = useState(false);
+  const [completeDiscount, setCompleteDiscount] = useState<string>('0');
+  const [completeTip, setCompleteTip] = useState<string>('0');
 
   const queryClient = useQueryClient();
 
@@ -475,8 +480,12 @@ export default function Agenda() {
       
       if (app.status === 'completed') {
         setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount })) || [{ method: 'pix', amount: app.total_price }]);
+        setEditDiscount(app.discount || '0');
+        setEditTip(app.tip || '0');
       } else {
         setEditPayments([]);
+        setEditDiscount('0');
+        setEditTip('0');
       }
     } catch (err) {
       toast.error('Erro ao buscar dados do agendamento.');
@@ -487,14 +496,16 @@ export default function Agenda() {
   };
 
   const completeWithPaymentsMutation = useMutation({
-    mutationFn: async ({ id, payments }: { id: number; payments: { method: string; amount: string }[] }) => {
-      return api.post(`/appointments/${id}/complete_with_payments/`, { payments });
+    mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string }[]; discount: string; tip: string }) => {
+      return api.post(`/appointments/${id}/complete_with_payments/`, { payments, discount, tip });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowCompleteModal(false);
       // Don't clear activeAppointment yet, we might need it for the sale question
       setPayments([]);
+      setCompleteDiscount('0');
+      setCompleteTip('0');
       toast.success('Atendimento concluído com sucesso!');
       setShowSaleQuestion(true);
     },
@@ -557,6 +568,8 @@ export default function Agenda() {
       const app = res.data;
       setActiveAppointment(app);
       setPayments([{ method: 'pix', amount: app.total_price }]);
+      setCompleteDiscount(app.discount || '0');
+      setCompleteTip(app.tip || '0');
     } catch (err) {
       toast.error('Erro ao buscar dados do agendamento.');
       setShowCompleteModal(false);
@@ -581,10 +594,10 @@ export default function Agenda() {
 
   const totalProducts = selectedProducts.reduce((acc, curr) => acc + (parseFloat(curr.unit_price) * curr.quantity), 0);
   const totalSalePaid = salePayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
-  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - totalProducts) < 0.01;
+  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - parseFloat(saleDiscount || '0'))) < 0.01;
 
   const totalPaid = payments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
-  const isTotalValid = activeAppointment && Math.abs(totalPaid - parseFloat(activeAppointment.total_price)) < 0.01;
+  const isTotalValid = activeAppointment && Math.abs(totalPaid - (parseFloat(activeAppointment.total_price) - parseFloat(completeDiscount || '0') + parseFloat(completeTip || '0'))) < 0.01;
 
   const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + parseFloat(curr.amount || '0'), 0);
   const isWalkInValid = walkInClient && walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
@@ -1001,6 +1014,33 @@ export default function Agenda() {
                   <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Desconto</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input 
+                        type="number" 
+                        className="pl-7 bg-background border-border/50 h-10" 
+                        value={completeDiscount}
+                        onChange={(e) => setCompleteDiscount(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Gorjeta</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input 
+                        type="number" 
+                        className="pl-7 bg-background border-border/50 h-10" 
+                        value={completeTip}
+                        onChange={(e) => setCompleteTip(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   {payments.map((payment, index) => (
                     <div key={index} className="flex gap-2 items-center">
@@ -1065,7 +1105,9 @@ export default function Agenda() {
               disabled={isFetchingAppData || !isTotalValid || completeWithPaymentsMutation.isPending}
               onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({ 
                 id: activeAppointment.id, 
-                payments 
+                payments,
+                discount: completeDiscount,
+                tip: completeTip
               })}
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -1116,6 +1158,33 @@ export default function Agenda() {
 
                 {editingAppointment?.status === 'completed' && (
                   <div className="space-y-4 pt-2 border-t border-border/50">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold">Desconto</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input 
+                            type="number" 
+                            className="pl-6 bg-background border-border/50 h-10" 
+                            value={editDiscount}
+                            onChange={(e) => setEditDiscount(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold">Gorjeta</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input 
+                            type="number" 
+                            className="pl-6 bg-background border-border/50 h-10" 
+                            value={editTip}
+                            onChange={(e) => setEditTip(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
                     <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
                     <div className="space-y-3">
                       {editPayments.map((payment: any, index: number) => (
@@ -1196,7 +1265,9 @@ export default function Agenda() {
                     payments: editingAppointment.status === 'completed' ? editPayments : undefined,
                     total_price: editingAppointment.status === 'completed' 
                       ? editPayments.reduce((acc: number, p: any) => acc + parseFloat(p.amount || '0'), 0) 
-                      : editService.price
+                      : editService.price,
+                    discount: editingAppointment.status === 'completed' ? editDiscount : undefined,
+                    tip: editingAppointment.status === 'completed' ? editTip : undefined
                   }
                 });
               }}
@@ -1286,7 +1357,7 @@ export default function Agenda() {
                             setProductSearch('');
                             // Auto-update payment if only one
                             if (salePayments.length === 1) {
-                              const newTotal = totalProducts + parseFloat(product.sale_price);
+                              const newTotal = (totalProducts + parseFloat(product.sale_price)) - parseFloat(saleDiscount || '0');
                               setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2) }]);
                             }
                           }}
@@ -1359,10 +1430,33 @@ export default function Agenda() {
                 <DollarSign className="w-4 h-4" /> Pagamento da Venda
               </h3>
 
-              <div className="space-y-2 p-5 rounded-2xl bg-muted/40 border border-border/50 shadow-inner">
+              <div className="space-y-2 p-4 rounded-2xl bg-muted/40 border border-border/50 shadow-inner">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tighter opacity-70">
+                  <span>Subtotal:</span>
+                  <span>{formatCurrency(totalProducts)}</span>
+                </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Total Produtos:</span>
-                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts)}</span>
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Desconto:</span>
+                  <div className="w-24 relative">
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input 
+                      type="number" 
+                      className="pl-6 bg-background border-border/50 h-8 rounded-lg text-right font-bold text-xs" 
+                      value={saleDiscount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSaleDiscount(val);
+                        if (salePayments.length === 1) {
+                          const newTotal = totalProducts - parseFloat(val || '0');
+                          setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2) }]);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-border/20">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Total à Pagar:</span>
+                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts - parseFloat(saleDiscount || '0'))}</span>
                 </div>
               </div>
 
@@ -1457,9 +1551,10 @@ export default function Agenda() {
               disabled={!isSaleTotalValid || createSaleMutation.isPending}
               onClick={() => createSaleMutation.mutate({ 
                 appointment: activeAppointment?.id,
-                client: activeAppointment?.client, // Assuming ID is in client field or nested
+                client: activeAppointment?.client,
                 products: selectedProducts,
-                payments: salePayments
+                payments: salePayments,
+                discount: saleDiscount
               })}
             >
               {createSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
