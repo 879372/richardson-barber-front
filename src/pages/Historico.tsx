@@ -184,13 +184,15 @@ const fieldLabels: Record<string, string> = {
   'notes': 'Notas',
   'service': 'Serviço',
   'barber': 'Barbeiro',
-  'client': 'Cliente'
+  'client': 'Cliente',
+  'discount': 'Desconto',
+  'tip': 'Gorjeta'
 };
 
 const formatValue = (field: string, value: any) => {
   if (value === null || value === undefined || value === "") return "Vazio";
   if (field === 'date_time') return format(new Date(value), "dd/MM/yy HH:mm");
-  if (field === 'total_price') return `R$ ${parseFloat(value).toFixed(2)}`;
+  if (field === 'total_price' || field === 'discount' || field === 'tip') return `R$ ${parseFloat(value).toFixed(2)}`;
   if (field === 'status') return statusMap[value]?.label || value;
   return String(value);
 };

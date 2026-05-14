@@ -40,6 +40,8 @@ type Appointment = {
   date_time: string;
   status: string;
   total_price: string;
+  discount?: string;
+  tip?: string;
   notes?: string;
 };
 
