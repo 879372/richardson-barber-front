@@ -1041,7 +1041,16 @@ export default function Agenda() {
                         type="text" 
                         className="pl-7 bg-background border-border/50 h-10" 
                         value={completeDiscount}
-                        onChange={(e) => setCompleteDiscount(maskCurrency(e.target.value))}
+                        onChange={(e) => {
+                          const val = maskCurrency(e.target.value);
+                          setCompleteDiscount(val);
+                          if (payments.length === 1 && activeAppointment) {
+                            const disc = parseFloat(unmaskCurrency(val)) || 0;
+                            const t = parseFloat(unmaskCurrency(completeTip)) || 0;
+                            const newTotal = parseFloat(activeAppointment.total_price) - disc + t;
+                            setPayments([{ ...payments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                          }
+                        }}
                       />
                     </div>
                   </div>
@@ -1053,7 +1062,16 @@ export default function Agenda() {
                         type="text" 
                         className="pl-7 bg-background border-border/50 h-10" 
                         value={completeTip}
-                        onChange={(e) => setCompleteTip(maskCurrency(e.target.value))}
+                        onChange={(e) => {
+                          const val = maskCurrency(e.target.value);
+                          setCompleteTip(val);
+                          if (payments.length === 1 && activeAppointment) {
+                            const disc = parseFloat(unmaskCurrency(completeDiscount)) || 0;
+                            const t = parseFloat(unmaskCurrency(val)) || 0;
+                            const newTotal = parseFloat(activeAppointment.total_price) - disc + t;
+                            setPayments([{ ...payments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                          }
+                        }}
                       />
                     </div>
                   </div>
@@ -1185,7 +1203,16 @@ export default function Agenda() {
                             type="text" 
                             className="pl-6 bg-background border-border/50 h-10" 
                             value={editDiscount}
-                            onChange={(e) => setEditDiscount(maskCurrency(e.target.value))}
+                            onChange={(e) => {
+                              const val = maskCurrency(e.target.value);
+                              setEditDiscount(val);
+                              if (editPayments.length === 1 && editService) {
+                                const disc = parseFloat(unmaskCurrency(val)) || 0;
+                                const t = parseFloat(unmaskCurrency(editTip)) || 0;
+                                const newTotal = parseFloat(editService.price) - disc + t;
+                                setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                              }
+                            }}
                           />
                         </div>
                       </div>
@@ -1197,7 +1224,16 @@ export default function Agenda() {
                             type="text" 
                             className="pl-6 bg-background border-border/50 h-10" 
                             value={editTip}
-                            onChange={(e) => setEditTip(maskCurrency(e.target.value))}
+                            onChange={(e) => {
+                              const val = maskCurrency(e.target.value);
+                              setEditTip(val);
+                              if (editPayments.length === 1 && editService) {
+                                const disc = parseFloat(unmaskCurrency(editDiscount)) || 0;
+                                const t = parseFloat(unmaskCurrency(val)) || 0;
+                                const newTotal = parseFloat(editService.price) - disc + t;
+                                setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                              }
+                            }}
                           />
                         </div>
                       </div>
