@@ -139,22 +139,21 @@ export default function Agenda() {
   const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<{ id: number; name: string; quantity: number; unit_price: string }[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  
+
   // New States for Flow
   const [showSaleQuestion, setShowSaleQuestion] = useState(false);
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
   const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
   const [saleDiscount, setSaleDiscount] = useState<string>('0,00');
-  
+
   // Walk-In State
   const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [walkInClient, setWalkInClient] = useState<any>(null);
   const [isWalkInClientPopoverOpen, setIsWalkInClientPopoverOpen] = useState(false);
   const [walkInService, setWalkInService] = useState<any>(null);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
-  const [walkInPayments, setWalkInPayments] = useState<{ method: string; amount: string }[]>([{ method: 'pix', amount: '0,00' }]);
   const [walkInTime, setWalkInTime] = useState<string>('');
-  
+
   // Timeline State
   const [timelineBarberId, setTimelineBarberId] = useState<string | null>(null);
 
@@ -217,7 +216,7 @@ export default function Agenda() {
     queryKey: ['products'],
     queryFn: async () => (await api.get<Product[]>('/products/')).data
   });
-  
+
   const { data: clients } = useQuery({
     queryKey: ['clients'],
     queryFn: async () => (await api.get<any[]>('/users/?role=client')).data,
@@ -275,7 +274,7 @@ export default function Agenda() {
 
   const checkDatesAvailability = async (dates: Date[]) => {
     if (!newAppBarber || !newAppService || !newAppTime || dates.length === 0) return;
-    
+
     try {
       const dateStrings = dates.map(d => format(d, 'yyyy-MM-dd'));
       const res = await api.post('/appointments/check_availability/', {
@@ -284,11 +283,11 @@ export default function Agenda() {
         time: newAppTime,
         dates: dateStrings
       });
-      
+
       const unavailable = res.data
         .filter((r: any) => !r.available)
         .map((r: any) => r.date);
-        
+
       setUnavailableDates(unavailable);
     } catch (error) {
       console.error("Erro ao verificar disponibilidade das datas", error);
@@ -300,7 +299,7 @@ export default function Agenda() {
 
   const getRecurrenceDates = () => {
     if (!selectedDate || !newAppTime) return [];
-    
+
     if (recurrenceType === 'custom') {
       return customDates.map(d => {
         const [hours, minutes] = newAppTime.split(':');
@@ -334,7 +333,7 @@ export default function Agenda() {
   const createAppointmentMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDate || !newAppTime || !newAppService || !newAppClient || !newAppBarber) return;
-      
+
       const datesToCreate = isRecurring ? getRecurrenceDates() : [
         (() => {
           const [hours, minutes] = newAppTime.split(':');
@@ -414,7 +413,7 @@ export default function Agenda() {
     mutationFn: async (startTimeStr: string) => {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const barberToBlock = me?.role === 'admin' ? blockBarber : me;
-      
+
       if (!barberToBlock) return;
 
       // Default block duration: 30 minutes
@@ -486,11 +485,11 @@ export default function Agenda() {
     try {
       const res = await api.get<Appointment>(`/appointments/${appId}/`);
       const app = res.data;
-      
+
       setEditingAppointment(app);
       const srv = services?.find((s: any) => s.id === app.service || s.name === app.service_name);
       setEditService(srv || null);
-      
+
       if (app.status === 'completed') {
         setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ',') })) || [{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
         setEditDiscount(app.discount?.replace('.', ',') || '0,00');
@@ -510,10 +509,10 @@ export default function Agenda() {
 
   const completeWithPaymentsMutation = useMutation({
     mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string }[]; discount: string; tip: string }) => {
-      return api.post(`/appointments/${id}/complete_with_payments/`, { 
-        payments: payments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })), 
-        discount: unmaskCurrency(discount) || '0', 
-        tip: unmaskCurrency(tip) || '0' 
+      return api.post(`/appointments/${id}/complete_with_payments/`, {
+        payments: payments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+        discount: unmaskCurrency(discount) || '0',
+        tip: unmaskCurrency(tip) || '0'
       });
     },
     onSuccess: () => {
@@ -550,28 +549,22 @@ export default function Agenda() {
       if (!walkInClient || !walkInService || !walkInBarber || !walkInTime) throw new Error("Preencha todos os campos.");
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const dateTime = `${dateStr}T${walkInTime}:00`;
-      
+
       return api.post('/appointments/walk_in/', {
         service_id: walkInService.id,
         barber_id: walkInBarber.id,
         client_id: walkInClient.id,
         client_name: walkInClient.first_name,
-        payments: walkInPayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
         date_time: dateTime
       });
     },
-    onSuccess: (res) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowWalkInModal(false);
-      
-      // Trigger sale question
-      setActiveAppointment(res.data);
-      setShowSaleQuestion(true);
 
       setWalkInClient(null);
       setWalkInService(null);
       setWalkInBarber(null);
-      setWalkInPayments([{ method: 'pix', amount: '0,00' }]);
       setWalkInTime('');
       toast.success('Atendimento avulso registrado com sucesso!');
     },
@@ -617,8 +610,7 @@ export default function Agenda() {
   const totalPaid = payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
   const isTotalValid = activeAppointment && Math.abs(totalPaid - (parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) + (parseFloat(unmaskCurrency(completeTip)) || 0))) < 0.01;
 
-  const totalWalkInPaid = walkInPayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
-  const isWalkInValid = walkInClient && walkInService && walkInBarber && Math.abs(totalWalkInPaid - parseFloat(walkInService.price || '0')) < 0.01;
+  const isWalkInValid = walkInClient && walkInService && walkInBarber && walkInTime;
 
   const filteredAppointments = appointments || [];
 
@@ -626,7 +618,7 @@ export default function Agenda() {
     const dayOfWeek = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1; // Backend: 0=Mon
     const barberId = parseInt(timelineBarberId || '0');
     const wh = workingHours?.find(w => w.barber === barberId && w.day_of_week === dayOfWeek && w.is_active);
-    
+
     let startHour = 8;
     let endHour = 20;
 
@@ -648,9 +640,9 @@ export default function Agenda() {
   const timelineItems = [
     ...(filteredAppointments?.filter(a => {
       const bId = typeof a.barber === 'object' ? a.barber?.id : a.barber;
-      return bId === parseInt(timelineBarberId || '0') || 
-             a.barber_name === barbers?.find(b=>b.id.toString()===timelineBarberId)?.first_name ||
-             a.barber_name === barbers?.find(b=>b.id.toString()===timelineBarberId)?.username;
+      return bId === parseInt(timelineBarberId || '0') ||
+        a.barber_name === barbers?.find(b => b.id.toString() === timelineBarberId)?.first_name ||
+        a.barber_name === barbers?.find(b => b.id.toString() === timelineBarberId)?.username;
     }).map(a => ({ ...a, type: 'appointment' as const })) || []),
     ...(timeBlocks?.filter(b => {
       const bId = typeof b.barber === 'object' ? b.barber?.id : b.barber;
@@ -714,9 +706,9 @@ export default function Agenda() {
                   <Button variant="outline" size="sm" className="h-10 sm:h-9 gap-2 min-w-[150px] bg-background">
                     <Filter className="w-4 h-4 text-muted-foreground" />
                     <span className="truncate">
-                      {statusFilter.length === Object.keys(statusMap).length 
-                        ? "Todos Status" 
-                        : statusFilter.length === 0 
+                      {statusFilter.length === Object.keys(statusMap).length
+                        ? "Todos Status"
+                        : statusFilter.length === 0
                           ? "Nenhum Status"
                           : `${statusFilter.length} Selecionados`}
                     </span>
@@ -738,10 +730,10 @@ export default function Agenda() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            
+
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())} className="h-10 sm:h-9 flex-1 sm:flex-none">Hoje</Button>
-              <Button 
+              <Button
                 variant="outline"
                 size="sm"
                 className="gap-2 h-10 sm:h-9 flex-1 sm:flex-none"
@@ -756,23 +748,22 @@ export default function Agenda() {
               </Button>
             </div>
 
-            <Button 
-              size="sm" 
-              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#4CAF50] hover:bg-[#388E3C] text-white font-bold" 
+            <Button
+              size="sm"
+              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#4CAF50] hover:bg-[#388E3C] text-white font-bold"
               onClick={() => {
                 setWalkInClient(null);
                 setWalkInService(null);
                 setWalkInBarber(me?.role === 'barber' ? me : null);
-                setWalkInPayments([{ method: 'pix', amount: '0' }]);
                 setShowWalkInModal(true);
               }}
             >
               <Zap className="w-4 h-4" /> <span className="whitespace-nowrap">Encaixe / Avulso</span>
             </Button>
 
-            <Button 
-              size="sm" 
-              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#d4a017] hover:bg-[#b8860b] text-white font-bold" 
+            <Button
+              size="sm"
+              className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#d4a017] hover:bg-[#b8860b] text-white font-bold"
               onClick={() => {
                 resetNewAppForm();
                 setShowNewAppointmentModal(true);
@@ -843,16 +834,16 @@ export default function Agenda() {
                   let startDate: Date;
                   let endDate: Date;
                   let durationMinutes = 30;
-                  
+
                   if (item.type === 'appointment') {
                     startDate = new Date(item.date_time);
                     const h = startDate.getHours();
                     const m = startDate.getMinutes();
-                    
+
                     const srv = services?.find(s => s.name === item.service_name || s.id === item.service);
                     durationMinutes = srv?.duration_minutes || 30;
                     endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-                    
+
                     top = ((h - startHour) * 60 + m) * 2;
                     height = durationMinutes * 2;
                   } else {
@@ -861,7 +852,7 @@ export default function Agenda() {
                     const h = startDate.getHours();
                     const m = startDate.getMinutes();
                     durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
-                    
+
                     top = ((h - startHour) * 60 + m) * 2;
                     height = durationMinutes * 2;
                   }
@@ -879,7 +870,7 @@ export default function Agenda() {
                   return (
                     <DropdownMenu key={`${item.type}-${item.id}`}>
                       <DropdownMenuTrigger asChild>
-                        <div 
+                        <div
                           className={cn(
                             "absolute left-1 right-1 sm:left-2 sm:right-2 rounded-lg border overflow-hidden transition-all hover:ring-2 cursor-pointer shadow-sm z-10",
                             isCompact ? "p-1 flex items-center" : "p-1.5 sm:p-2 flex flex-col gap-0",
@@ -889,8 +880,8 @@ export default function Agenda() {
                             isNoShow && "bg-gray-500/10 border-gray-500/30",
                             isConfirmed && "bg-blue-500/10 border-blue-500/30"
                           )}
-                          style={{ 
-                            top: `${top}px`, 
+                          style={{
+                            top: `${top}px`,
                             height: `${height}px`,
                           }}
                         >
@@ -929,11 +920,11 @@ export default function Agenda() {
                                   </div>
                                 </div>
                               </div>
-                              
+
                               <div className="text-[10px] sm:text-xs opacity-80 truncate flex items-center gap-1 font-medium w-full">
                                 {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
                               </div>
-                              
+
                               {isApp && item.notes && height >= 80 && (
                                 <div className="text-[9px] sm:text-[10px] opacity-60 line-clamp-2 italic leading-tight w-full mt-0.5">
                                   "{item.notes}"
@@ -979,10 +970,10 @@ export default function Agenda() {
                             <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-destructive">
                               Bloqueio de Agenda
                             </div>
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               className="text-destructive"
                               onClick={() => {
-                                if(confirm('Deseja realmente remover este bloqueio?')) {
+                                if (confirm('Deseja realmente remover este bloqueio?')) {
                                   deleteBlockMutation.mutate(item.id);
                                 }
                               }}
@@ -1037,9 +1028,9 @@ export default function Agenda() {
                     <Label className="text-xs">Desconto</Label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                      <Input 
-                        type="text" 
-                        className="pl-7 bg-background border-border/50 h-10" 
+                      <Input
+                        type="text"
+                        className="pl-7 bg-background border-border/50 h-10"
                         value={completeDiscount}
                         onChange={(e) => {
                           const val = maskCurrency(e.target.value);
@@ -1058,9 +1049,9 @@ export default function Agenda() {
                     <Label className="text-xs">Gorjeta</Label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                      <Input 
-                        type="text" 
-                        className="pl-7 bg-background border-border/50 h-10" 
+                      <Input
+                        type="text"
+                        className="pl-7 bg-background border-border/50 h-10"
                         value={completeTip}
                         onChange={(e) => {
                           const val = maskCurrency(e.target.value);
@@ -1081,8 +1072,8 @@ export default function Agenda() {
                   {payments.map((payment, index) => (
                     <div key={index} className="flex gap-2 items-center">
                       <div className="flex-1">
-                        <Select 
-                          value={payment.method} 
+                        <Select
+                          value={payment.method}
                           onValueChange={(val) => updatePayment(index, 'method', val)}
                         >
                           <SelectTrigger className="bg-background border-border/50 h-11">
@@ -1101,17 +1092,17 @@ export default function Agenda() {
                       </div>
                       <div className="w-32 relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                        <Input 
-                          type="text" 
-                          className="pl-7 bg-background border-border/50 h-11" 
+                        <Input
+                          type="text"
+                          className="pl-7 bg-background border-border/50 h-11"
                           value={payment.amount}
                           onChange={(e) => updatePayment(index, 'amount', maskCurrency(e.target.value))}
                         />
                       </div>
                       {payments.length > 1 && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="text-destructive h-11 w-11"
                           onClick={() => removePaymentRow(index)}
                         >
@@ -1136,11 +1127,11 @@ export default function Agenda() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCompleteModal(false)}>Cancelar</Button>
-            <Button 
+            <Button
               className="px-6 font-bold"
               disabled={isFetchingAppData || !isTotalValid || completeWithPaymentsMutation.isPending}
-              onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({ 
-                id: activeAppointment.id, 
+              onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({
+                id: activeAppointment.id,
                 payments,
                 discount: completeDiscount || '0',
                 tip: completeTip || '0'
@@ -1177,8 +1168,8 @@ export default function Agenda() {
               <>
                 <div className="space-y-2">
                   <Label>Serviço</Label>
-                  <Select 
-                    value={editService?.id?.toString()} 
+                  <Select
+                    value={editService?.id?.toString()}
                     onValueChange={(val) => setEditService(services?.find((s: any) => s.id.toString() === val))}
                   >
                     <SelectTrigger className="bg-background border-border/50 h-11">
@@ -1199,9 +1190,9 @@ export default function Agenda() {
                         <Label className="text-[10px] uppercase text-muted-foreground font-bold">Desconto</Label>
                         <div className="relative">
                           <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                          <Input 
-                            type="text" 
-                            className="pl-6 bg-background border-border/50 h-10" 
+                          <Input
+                            type="text"
+                            className="pl-6 bg-background border-border/50 h-10"
                             value={editDiscount}
                             onChange={(e) => {
                               const val = maskCurrency(e.target.value);
@@ -1220,9 +1211,9 @@ export default function Agenda() {
                         <Label className="text-[10px] uppercase text-muted-foreground font-bold">Gorjeta</Label>
                         <div className="relative">
                           <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                          <Input 
-                            type="text" 
-                            className="pl-6 bg-background border-border/50 h-10" 
+                          <Input
+                            type="text"
+                            className="pl-6 bg-background border-border/50 h-10"
                             value={editTip}
                             onChange={(e) => {
                               const val = maskCurrency(e.target.value);
@@ -1238,14 +1229,14 @@ export default function Agenda() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
                     <div className="space-y-3">
                       {editPayments.map((payment: any, index: number) => (
                         <div key={index} className="flex gap-2 items-center">
                           <div className="flex-1">
-                            <Select 
-                              value={payment.method} 
+                            <Select
+                              value={payment.method}
                               onValueChange={(val) => {
                                 const newPayments = [...editPayments];
                                 newPayments[index].method = val;
@@ -1268,9 +1259,9 @@ export default function Agenda() {
                           </div>
                           <div className="w-28 relative">
                             <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                            <Input 
-                              type="text" 
-                              className="pl-6 bg-background border-border/50 h-10" 
+                            <Input
+                              type="text"
+                              className="pl-6 bg-background border-border/50 h-10"
                               value={payment.amount}
                               onChange={(e) => {
                                 const newPayments = [...editPayments];
@@ -1280,9 +1271,9 @@ export default function Agenda() {
                             />
                           </div>
                           {editPayments.length > 1 && (
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="text-destructive h-10 w-10"
                               onClick={() => setEditPayments(editPayments.filter((_, i) => i !== index))}
                             >
@@ -1291,10 +1282,10 @@ export default function Agenda() {
                           )}
                         </div>
                       ))}
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full gap-2 border-dashed h-10 text-xs" 
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2 border-dashed h-10 text-xs"
                         onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0' }])}
                       >
                         <Plus className="w-3 h-3" /> Adicionar Pagamento
@@ -1308,7 +1299,7 @@ export default function Agenda() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditAppointmentModal(false)}>Cancelar</Button>
-            <Button 
+            <Button
               className="px-6 font-bold"
               disabled={isFetchingEditData || !editService || updateAppointmentMutation.isPending}
               onClick={() => {
@@ -1317,8 +1308,8 @@ export default function Agenda() {
                   data: {
                     service: editService.id,
                     payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
-                    total_price: editingAppointment.status === 'completed' 
-                      ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0) 
+                    total_price: editingAppointment.status === 'completed'
+                      ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0)
                       : editService.price,
                     discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
                     tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
@@ -1343,9 +1334,9 @@ export default function Agenda() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-4 pt-4">
-            <Button 
-              variant="outline" 
-              className="flex-1 h-12 text-lg font-medium" 
+            <Button
+              variant="outline"
+              className="flex-1 h-12 text-lg font-medium"
               onClick={() => {
                 setShowSaleQuestion(false);
                 setActiveAppointment(null);
@@ -1353,8 +1344,8 @@ export default function Agenda() {
             >
               Não
             </Button>
-            <Button 
-              className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20" 
+            <Button
+              className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20"
               onClick={() => {
                 setShowSaleQuestion(false);
                 setSalePayments([{ method: 'pix', amount: '0,00' }]);
@@ -1384,16 +1375,16 @@ export default function Agenda() {
               <h3 className="font-bold text-sm flex items-center gap-2 text-primary uppercase tracking-wider">
                 <ShoppingCart className="w-4 h-4" /> Itens da Venda
               </h3>
-              
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Pesquisar produto..." 
+                <Input
+                  placeholder="Pesquisar produto..."
                   className="pl-9 bg-background border-border/50 h-10"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                 />
-                
+
                 {productSearch && (
                   <Card className="absolute top-full left-0 right-0 z-50 mt-1 border-border shadow-2xl bg-card max-h-[200px] overflow-y-auto ring-1 ring-primary/20">
                     <div className="p-1">
@@ -1437,7 +1428,7 @@ export default function Agenda() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center border border-border/50 rounded-lg bg-background overflow-hidden h-9 shadow-sm">
-                        <button 
+                        <button
                           className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
                           onClick={() => {
                             const newQty = p.quantity - 1;
@@ -1451,16 +1442,16 @@ export default function Agenda() {
                           -
                         </button>
                         <span className="px-2 font-black min-w-[24px] text-center">{p.quantity}</span>
-                        <button 
+                        <button
                           className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
                           onClick={() => setSelectedProducts(selectedProducts.map((prod, i) => i === idx ? { ...prod, quantity: prod.quantity + 1 } : prod))}
                         >
                           +
                         </button>
                       </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-9 w-9 text-destructive hover:bg-destructive/10"
                         onClick={() => setSelectedProducts(selectedProducts.filter((_, i) => i !== idx))}
                       >
@@ -1493,9 +1484,9 @@ export default function Agenda() {
                   <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Desconto:</span>
                   <div className="w-24 relative">
                     <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <Input 
-                      type="text" 
-                      className="pl-6 bg-background border-border/50 h-8 rounded-lg text-right font-bold text-xs" 
+                    <Input
+                      type="text"
+                      className="pl-6 bg-background border-border/50 h-8 rounded-lg text-right font-bold text-xs"
                       value={saleDiscount}
                       onChange={(e) => {
                         const val = maskCurrency(e.target.value);
@@ -1518,8 +1509,8 @@ export default function Agenda() {
                 {salePayments.map((payment, index) => (
                   <div key={index} className="flex gap-2 items-center group">
                     <div className="flex-1">
-                      <Select 
-                        value={payment.method} 
+                      <Select
+                        value={payment.method}
                         onValueChange={(val) => {
                           const newP = [...salePayments];
                           newP[index].method = val;
@@ -1542,9 +1533,9 @@ export default function Agenda() {
                     </div>
                     <div className="w-32 relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                      <Input 
-                        type="text" 
-                        className="pl-8 bg-background border-border/50 h-11 rounded-xl font-bold" 
+                      <Input
+                        type="text"
+                        className="pl-8 bg-background border-border/50 h-11 rounded-xl font-bold"
                         value={payment.amount}
                         onChange={(e) => {
                           const newP = [...salePayments];
@@ -1554,9 +1545,9 @@ export default function Agenda() {
                       />
                     </div>
                     {salePayments.length > 1 && (
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="text-destructive h-11 w-11 shrink-0 hover:bg-destructive/10"
                         onClick={() => setSalePayments(salePayments.filter((_, i) => i !== index))}
                       >
@@ -1565,11 +1556,11 @@ export default function Agenda() {
                     )}
                   </div>
                 ))}
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50" 
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50"
                   onClick={() => {
                     const remaining = totalProducts - totalSalePaid;
                     setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2).replace('.', ',') : '0,00' }]);
@@ -1585,9 +1576,9 @@ export default function Agenda() {
                   <span className="font-black text-xl leading-none">{formatCurrency(totalSalePaid)}</span>
                 </div>
                 {!isSaleTotalValid && totalProducts > 0 && (
-                   <div className="text-[10px] font-bold text-right italic leading-tight">
+                  <div className="text-[10px] font-bold text-right italic leading-tight">
                     Faltam {formatCurrency(totalProducts - totalSalePaid)}
-                   </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -1600,10 +1591,10 @@ export default function Agenda() {
             }}>
               Pular / Cancelar
             </Button>
-            <Button 
+            <Button
               className="px-10 font-black h-12 shadow-xl shadow-primary/20"
               disabled={!isSaleTotalValid || createSaleMutation.isPending}
-              onClick={() => createSaleMutation.mutate({ 
+              onClick={() => createSaleMutation.mutate({
                 appointment: activeAppointment?.id,
                 client: activeAppointment?.client,
                 products: selectedProducts,
@@ -1632,16 +1623,16 @@ export default function Agenda() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">Cliente</label>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className="h-7 text-[10px] text-primary gap-1 font-bold"
                   onClick={() => setShowQuickCreateClient(true)}
                 >
                   <Plus className="w-3 h-3" /> NOVO CLIENTE
                 </Button>
               </div>
-              
+
               <Popover open={isClientPopoverOpen} onOpenChange={setIsClientPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1667,16 +1658,16 @@ export default function Agenda() {
                     />
                   </div>
                   <div className="max-h-[300px] overflow-y-auto py-1">
-                    {clients?.filter(c => 
+                    {clients?.filter(c =>
                       (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.phone || '').includes(clientSearch)
                     ).length === 0 && (
-                      <div className="py-6 text-center text-sm text-muted-foreground">
-                        Nenhum cliente encontrado.
-                      </div>
-                    )}
-                    {clients?.filter(c => 
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                          Nenhum cliente encontrado.
+                        </div>
+                      )}
+                    {clients?.filter(c =>
                       (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.phone || '').includes(clientSearch)
@@ -1713,8 +1704,8 @@ export default function Agenda() {
             {/* Service Selection */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Serviço</label>
-              <Select 
-                value={newAppService?.id?.toString()} 
+              <Select
+                value={newAppService?.id?.toString()}
                 onValueChange={(val) => setNewAppService(services?.find(s => s.id.toString() === val))}
               >
                 <SelectTrigger className="bg-background border-border/50">
@@ -1733,8 +1724,8 @@ export default function Agenda() {
             {/* Barber Selection */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Profissional</label>
-              <Select 
-                value={newAppBarber?.id?.toString()} 
+              <Select
+                value={newAppBarber?.id?.toString()}
                 onValueChange={(val) => setNewAppBarber(barbers?.find(b => b.id.toString() === val))}
               >
                 <SelectTrigger className="bg-background border-border/50">
@@ -1781,7 +1772,7 @@ export default function Agenda() {
             {/* Notes */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Observações (Opcional)</label>
-              <Textarea 
+              <Textarea
                 placeholder="Ex: Cliente prefere tal estilo..."
                 value={newAppNotes}
                 onChange={(e) => setNewAppNotes(e.target.value)}
@@ -1797,12 +1788,12 @@ export default function Agenda() {
                     <RefreshCw className="w-5 h-5 text-primary" />
                     <Label className="font-semibold text-primary text-base cursor-pointer" onClick={() => setIsRecurring(!isRecurring)}>Agendamento Recorrente?</Label>
                   </div>
-                  <Switch 
-                    checked={isRecurring} 
-                    onCheckedChange={setIsRecurring} 
+                  <Switch
+                    checked={isRecurring}
+                    onCheckedChange={setIsRecurring}
                   />
                 </div>
-                
+
                 {isRecurring && (
                   <div className="pt-4 border-t border-primary/10 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
                     <div className="space-y-2">
@@ -1820,7 +1811,7 @@ export default function Agenda() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     {recurrenceType === 'custom' ? (
                       <div className="col-span-2 space-y-2 border-t border-primary/10 pt-4">
                         <div className="flex items-center justify-between mb-2">
@@ -1837,7 +1828,7 @@ export default function Agenda() {
                             disabled={(date) => {
                               const dStr = format(date, 'yyyy-MM-dd');
                               // Check if date is in the past
-                              if (date < new Date(new Date().setHours(0,0,0,0))) return true;
+                              if (date < new Date(new Date().setHours(0, 0, 0, 0))) return true;
                               return unavailableDates.includes(dStr);
                             }}
                             onDayClick={(day) => {
@@ -1870,7 +1861,7 @@ export default function Agenda() {
                         </Select>
                       </div>
                     )}
-                    
+
                     <div className="col-span-2 mt-2 bg-background/50 p-3 rounded-lg border border-border/50">
                       <Label className="text-xs text-muted-foreground mb-2 block">
                         {recurrenceType === 'custom' ? `Agendamentos para estas ${customDates.length} datas:` : 'Pré-visualização das datas:'}
@@ -1894,7 +1885,7 @@ export default function Agenda() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewAppointmentModal(false)}>Cancelar</Button>
-            <Button 
+            <Button
               disabled={!newAppClient || !newAppService || !newAppBarber || !newAppTime || createAppointmentMutation.isPending}
               onClick={() => createAppointmentMutation.mutate()}
             >
@@ -1918,8 +1909,8 @@ export default function Agenda() {
           <div className="space-y-6 py-4">
             <div className="space-y-2">
               <Label>Nome Completo</Label>
-              <Input 
-                placeholder="Ex: João Silva" 
+              <Input
+                placeholder="Ex: João Silva"
                 className="bg-background border-border/50 h-11"
                 value={quickClient.name}
                 onChange={(e) => setQuickClient({ ...quickClient, name: e.target.value })}
@@ -1927,8 +1918,8 @@ export default function Agenda() {
             </div>
             <div className="space-y-2">
               <Label>WhatsApp</Label>
-              <Input 
-                placeholder="(00) 00000-0000" 
+              <Input
+                placeholder="(00) 00000-0000"
                 className="bg-background border-border/50 h-11"
                 value={quickClient.phone}
                 onChange={(e) => setQuickClient({ ...quickClient, phone: maskPhone(e.target.value) })}
@@ -1939,7 +1930,7 @@ export default function Agenda() {
                 Data de Nascimento
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Opcional</span>
               </Label>
-              <Input 
+              <Input
                 placeholder="DD/MM/AAAA"
                 className="bg-background border-border/50 h-11"
                 value={quickClient.birth_date}
@@ -1951,7 +1942,7 @@ export default function Agenda() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowQuickCreateClient(false)}>Cancelar</Button>
-            <Button 
+            <Button
               disabled={!quickClient.name || !quickClient.phone || createClientMutation.isPending}
               onClick={() => createClientMutation.mutate(quickClient)}
             >
@@ -1976,8 +1967,8 @@ export default function Agenda() {
             {me?.role === 'admin' && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Profissional</label>
-                <Select 
-                  value={blockBarber?.id?.toString()} 
+                <Select
+                  value={blockBarber?.id?.toString()}
                   onValueChange={(val) => {
                     const b = barbers?.find(b => b.id.toString() === val);
                     setBlockBarber(b);
@@ -1999,10 +1990,10 @@ export default function Agenda() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Motivo do Bloqueio</label>
-              <Input 
-                placeholder="Ex: Intervalo, Almoço, Compromisso..." 
-                value={blockReason} 
-                onChange={(e) => setBlockReason(e.target.value)} 
+              <Input
+                placeholder="Ex: Intervalo, Almoço, Compromisso..."
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
                 className="bg-background border-border/50"
               />
             </div>
@@ -2014,9 +2005,9 @@ export default function Agenda() {
                   Selecione um profissional para ver os horários.
                 </div>
               ) : (
-                <TimeSlotsGrid 
-                  barberId={blockBarber.id} 
-                  date={selectedDate} 
+                <TimeSlotsGrid
+                  barberId={blockBarber.id}
+                  date={selectedDate}
                   onSelectTime={(time) => createBlockMutation.mutate(time)}
                   isLoading={createBlockMutation.isPending}
                 />
@@ -2036,7 +2027,7 @@ export default function Agenda() {
           <DialogHeader>
             <DialogTitle>Registro de Atendimento Avulso</DialogTitle>
             <DialogDescription>
-              Registre rapidamente um serviço já realizado (encaixe/cliente avulso).
+              Registre um cliente que chegou de repente e você não tinha agendado
             </DialogDescription>
           </DialogHeader>
 
@@ -2045,16 +2036,16 @@ export default function Agenda() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">Cliente *</label>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className="h-7 text-[10px] text-primary gap-1 font-bold"
                   onClick={() => setShowQuickCreateClient(true)}
                 >
                   <Plus className="w-3 h-3" /> NOVO CLIENTE
                 </Button>
               </div>
-              
+
               <Popover open={isWalkInClientPopoverOpen} onOpenChange={setIsWalkInClientPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -2080,16 +2071,16 @@ export default function Agenda() {
                     />
                   </div>
                   <div className="max-h-[300px] overflow-y-auto py-1">
-                    {clients?.filter(c => 
+                    {clients?.filter(c =>
                       (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.phone || '').includes(clientSearch)
                     ).length === 0 && (
-                      <div className="py-6 text-center text-sm text-muted-foreground">
-                        Nenhum cliente encontrado.
-                      </div>
-                    )}
-                    {clients?.filter(c => 
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                          Nenhum cliente encontrado.
+                        </div>
+                      )}
+                    {clients?.filter(c =>
                       (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
                       (c.phone || '').includes(clientSearch)
@@ -2125,14 +2116,11 @@ export default function Agenda() {
 
             <div className="space-y-2">
               <Label>Serviço *</Label>
-              <Select 
-                value={walkInService?.id?.toString() || ''} 
+              <Select
+                value={walkInService?.id?.toString() || ''}
                 onValueChange={(val) => {
                   const s = services?.find(x => x.id.toString() === val);
-                  if (s) {
-                    setWalkInService(s);
-                      setWalkInPayments([{ method: 'pix', amount: s.price.replace('.', ',') }]);
-                  }
+                  if (s) setWalkInService(s);
                 }}
               >
                 <SelectTrigger className="bg-background border-border/50">
@@ -2149,7 +2137,7 @@ export default function Agenda() {
             <div className="space-y-2">
               <Label>Horário do Atendimento *</Label>
               <div className="relative">
-                <Input 
+                <Input
                   placeholder="HH:mm (Ex: 14:30)"
                   className="bg-background border-border/50 h-11 text-center text-lg font-bold"
                   value={walkInTime}
@@ -2166,8 +2154,8 @@ export default function Agenda() {
 
             <div className="space-y-2">
               <Label>Profissional *</Label>
-              <Select 
-                value={walkInBarber?.id?.toString() || ''} 
+              <Select
+                value={walkInBarber?.id?.toString() || ''}
                 onValueChange={(val) => {
                   const b = barbers?.find(x => x.id.toString() === val);
                   if (b) setWalkInBarber(b);
@@ -2190,86 +2178,19 @@ export default function Agenda() {
                   <span className="text-muted-foreground">Valor do Serviço:</span>
                   <span className="font-bold text-lg">{formatCurrency(walkInService.price)}</span>
                 </div>
-
-                <div className="space-y-3">
-                  {walkInPayments.map((payment, index) => (
-                    <div key={index} className="flex gap-2 items-center">
-                      <div className="flex-1">
-                        <Select 
-                          value={payment.method} 
-                          onValueChange={(val) => {
-                            const newP = [...walkInPayments];
-                            newP[index] = { ...newP[index], method: val };
-                            setWalkInPayments(newP);
-                          }}
-                        >
-                          <SelectTrigger className="bg-background border-border/50 h-11">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-card border-border">
-                            <SelectItem value="pix">PIX</SelectItem>
-                            <SelectItem value="cash">Dinheiro</SelectItem>
-                            <SelectItem value="credit">Cartão de Crédito</SelectItem>
-                            <SelectItem value="debit">Cartão de Débito</SelectItem>
-                            {customMethods?.filter(m => m.is_active).map(m => (
-                              <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="w-32 relative">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                        <Input 
-                          type="text" 
-                          className="pl-7 bg-background border-border/50 h-11" 
-                          value={payment.amount}
-                          onChange={(e) => {
-                            const newP = [...walkInPayments];
-                            newP[index] = { ...newP[index], amount: maskCurrency(e.target.value) };
-                            setWalkInPayments(newP);
-                          }}
-                        />
-                      </div>
-                      {walkInPayments.length > 1 && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="text-destructive h-11 w-11 shrink-0"
-                          onClick={() => setWalkInPayments(walkInPayments.filter((_, i) => i !== index))}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full gap-2 border-dashed h-11" 
-                  onClick={() => setWalkInPayments([...walkInPayments, { method: 'cash', amount: '0' }])}
-                >
-                  <Plus className="w-4 h-4" /> Adicionar forma de pagamento
-                </Button>
-
-                <div className={`p-4 rounded-lg flex justify-between items-center ${isWalkInValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                  <span className="text-sm font-medium">Soma dos pagamentos:</span>
-                  <span className="font-bold">{formatCurrency(totalWalkInPaid)}</span>
-                </div>
               </div>
             )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowWalkInModal(false)}>Cancelar</Button>
-            <Button 
+            <Button
               className="px-6 font-bold"
               disabled={!isWalkInValid || !walkInTime || createWalkInMutation.isPending}
               onClick={() => createWalkInMutation.mutate()}
             >
               {createWalkInMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Registrar Atendimento
+              Confirmar encaixe
             </Button>
           </DialogFooter>
         </DialogContent>
