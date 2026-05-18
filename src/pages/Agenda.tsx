@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { User, Scissors, XCircle, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
+import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -455,17 +455,6 @@ export default function Agenda() {
     onError: () => toast.error('Erro ao atualizar status.'),
   });
 
-  const cancelRecurringMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return api.post(`/appointments/${id}/cancel_recurring/`);
-    },
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast.success(res.data.status || 'Agendamentos recorrentes cancelados!');
-    },
-    onError: () => toast.error('Erro ao cancelar agendamentos recorrentes.'),
-  });
-
   const updateAppointmentMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
       return api.patch(`/appointments/${id}/`, data);
@@ -637,6 +626,31 @@ export default function Agenda() {
 
   const { startHour, timelineHours } = getTimelineBounds();
 
+  const virtualBreakBlock = (() => {
+    if (!workingHours || !timelineBarberId) return null;
+    const activeBarberId = parseInt(timelineBarberId);
+    const jsDay = selectedDate.getDay();
+    const pyDay = jsDay === 0 ? 6 : jsDay - 1;
+    
+    const wh = workingHours.find(wh => {
+      const whBarberId = typeof wh.barber === 'object' ? wh.barber?.id : wh.barber;
+      return whBarberId === activeBarberId && wh.day_of_week === pyDay && wh.is_active;
+    });
+
+    if (!wh || !wh.break_start_time || !wh.break_end_time) return null;
+
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    return {
+      id: -999,
+      type: 'block' as const,
+      reason: 'Intervalo',
+      start_time: `${dateStr}T${wh.break_start_time}`,
+      end_time: `${dateStr}T${wh.break_end_time}`,
+      barber: activeBarberId,
+      is_virtual_break: true,
+    };
+  })();
+
   const timelineItems = [
     ...(filteredAppointments?.filter(a => {
       const bId = typeof a.barber === 'object' ? a.barber?.id : a.barber;
@@ -647,7 +661,8 @@ export default function Agenda() {
     ...(timeBlocks?.filter(b => {
       const bId = typeof b.barber === 'object' ? b.barber?.id : b.barber;
       return bId === parseInt(timelineBarberId || '0');
-    }).map(b => ({ ...b, type: 'block' as const })) || [])
+    }).map(b => ({ ...b, type: 'block' as const })) || []),
+    ...(virtualBreakBlock ? [virtualBreakBlock] : [])
   ];
 
   return (
@@ -828,164 +843,231 @@ export default function Agenda() {
 
               {/* Blocks */}
               <div className="absolute top-0 bottom-0 left-14 sm:left-16 right-0 p-1 sm:p-2">
-                {timelineItems.map(item => {
-                  let top = 0;
-                  let height = 30;
-                  let startDate: Date;
-                  let endDate: Date;
-                  let durationMinutes = 30;
+                {(() => {
+                  // Enrich items with start/end Date objects and duration
+                  const enrichedItems = timelineItems.map(item => {
+                    let startDate: Date;
+                    let endDate: Date;
+                    let durationMinutes = 30;
 
-                  if (item.type === 'appointment') {
-                    startDate = new Date(item.date_time);
-                    const h = startDate.getHours();
-                    const m = startDate.getMinutes();
+                    if (item.type === 'appointment') {
+                      startDate = new Date(item.date_time);
+                      const srv = services?.find(s => s.name === item.service_name || s.id === item.service);
+                      durationMinutes = srv?.duration_minutes || 30;
+                      endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+                    } else {
+                      startDate = new Date(item.start_time);
+                      endDate = new Date(item.end_time);
+                      durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+                    }
 
-                    const srv = services?.find(s => s.name === item.service_name || s.id === item.service);
-                    durationMinutes = srv?.duration_minutes || 30;
-                    endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+                    return {
+                      ...item,
+                      startDate,
+                      endDate,
+                      durationMinutes
+                    };
+                  }).sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || b.endDate.getTime() - a.startDate.getTime());
 
-                    top = ((h - startHour) * 60 + m) * 2;
-                    height = durationMinutes * 2;
-                  } else {
-                    startDate = new Date(item.start_time);
-                    endDate = new Date(item.end_time);
-                    const h = startDate.getHours();
-                    const m = startDate.getMinutes();
-                    durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+                  // Group into clusters of overlapping events
+                  const clusters: { events: typeof enrichedItems; columns: typeof enrichedItems[] }[] = [];
 
-                    top = ((h - startHour) * 60 + m) * 2;
-                    height = durationMinutes * 2;
+                  for (const event of enrichedItems) {
+                    let joinedCluster = false;
+                    for (const cluster of clusters) {
+                      const overlaps = cluster.events.some(e => 
+                        event.startDate.getTime() < e.endDate.getTime() && event.endDate.getTime() > e.startDate.getTime()
+                      );
+                      if (overlaps) {
+                        cluster.events.push(event);
+                        let placed = false;
+                        for (let cIdx = 0; cIdx < cluster.columns.length; cIdx++) {
+                          const col = cluster.columns[cIdx];
+                          const colOverlaps = col.some(e =>
+                            event.startDate.getTime() < e.endDate.getTime() && event.endDate.getTime() > e.startDate.getTime()
+                          );
+                          if (!colOverlaps) {
+                            col.push(event);
+                            placed = true;
+                            break;
+                          }
+                        }
+                        if (!placed) {
+                          cluster.columns.push([event]);
+                        }
+                        joinedCluster = true;
+                        break;
+                      }
+                    }
+
+                    if (!joinedCluster) {
+                      clusters.push({
+                        events: [event],
+                        columns: [[event]]
+                      });
+                    }
                   }
 
-                  if (top < 0) return null; // Outside top bounds
+                  // Flatten back with column information
+                  const positionedEvents = enrichedItems.map(event => {
+                    let colIndex = 0;
+                    let totalCols = 1;
+                    for (const cluster of clusters) {
+                      if (cluster.events.includes(event)) {
+                        totalCols = cluster.columns.length;
+                        colIndex = cluster.columns.findIndex(col => col.includes(event));
+                        break;
+                      }
+                    }
+                    return {
+                      ...event,
+                      colIndex,
+                      totalCols
+                    };
+                  });
 
-                  const isApp = item.type === 'appointment';
-                  const isCompleted = isApp && item.status === 'completed';
-                  const isCancelled = isApp && item.status === 'cancelled';
-                  const isNoShow = isApp && item.status === 'no_show';
-                  const isConfirmed = isApp && item.status === 'confirmed';
+                  return positionedEvents.map(item => {
+                    const top = ((item.startDate.getHours() - startHour) * 60 + item.startDate.getMinutes()) * 2;
+                    const height = item.durationMinutes * 2;
 
-                  const isCompact = height <= 40;
+                    if (top < 0) return null; // Outside top bounds
 
-                  return (
-                    <DropdownMenu key={`${item.type}-${item.id}`}>
-                      <DropdownMenuTrigger asChild>
-                        <div
-                          className={cn(
-                            "absolute left-1 right-1 sm:left-2 sm:right-2 rounded-lg border overflow-hidden transition-all hover:ring-2 cursor-pointer shadow-sm z-10",
-                            isCompact ? "p-1 flex items-center" : "p-1.5 sm:p-2 flex flex-col gap-0",
-                            isApp ? "bg-primary/10 border-primary/20 hover:ring-primary/50" : "bg-destructive/10 border-destructive/30 border-dashed hover:ring-destructive/50",
-                            isCompleted && "bg-green-500/10 border-green-500/30",
-                            isCancelled && "bg-red-500/10 border-red-500/30",
-                            isNoShow && "bg-gray-500/10 border-gray-500/30",
-                            isConfirmed && "bg-blue-500/10 border-blue-500/30"
-                          )}
-                          style={{
-                            top: `${top}px`,
-                            height: `${height}px`,
-                          }}
-                        >
-                          {isCompact ? (
-                            <div className="flex items-center justify-between w-full h-full gap-2">
-                              <div className="flex items-center gap-1 truncate">
-                                <span className="font-bold text-[10px] truncate">{isApp ? item.client_name : "Bloqueio"}</span>
-                                {isApp && <span className="text-[9px] opacity-80 truncate shrink-0 hidden sm:inline">- {item.service_name}</span>}
-                              </div>
-                              <div className="text-right shrink-0 leading-none">
-                                <div className="text-[9px] font-black opacity-70">
-                                  {format(startDate, 'HH:mm')}-{format(endDate, 'HH:mm')}
+                    const isApp = item.type === 'appointment';
+                    const isCompleted = isApp && item.status === 'completed';
+                    const isCancelled = isApp && item.status === 'cancelled';
+                    const isNoShow = isApp && item.status === 'no_show';
+                    const isConfirmed = isApp && item.status === 'confirmed';
+
+                    const isCompact = height <= 40;
+
+                    // Compute dynamic left and width percentages
+                    const widthPct = 100 / item.totalCols;
+                    const leftPct = item.colIndex * widthPct;
+
+                    return (
+                      <DropdownMenu key={`${item.type}-${item.id}`}>
+                        <DropdownMenuTrigger asChild>
+                          <div
+                            className={cn(
+                              "absolute rounded-lg border overflow-hidden transition-all hover:ring-2 cursor-pointer shadow-sm z-10",
+                              isCompact ? "p-1 flex items-center" : "p-1.5 sm:p-2 flex flex-col gap-0",
+                              isApp ? "bg-primary/10 border-primary/20 hover:ring-primary/50" : "bg-destructive/10 border-destructive/30 border-dashed hover:ring-destructive/50",
+                              isCompleted && "bg-green-500/10 border-green-500/30",
+                              isCancelled && "bg-red-500/10 border-red-500/30",
+                              isNoShow && "bg-gray-500/10 border-gray-500/30",
+                              isConfirmed && "bg-blue-500/10 border-blue-500/30"
+                            )}
+                            style={{
+                              top: `${top}px`,
+                              height: `${height}px`,
+                              left: `calc(${leftPct}% + ${item.colIndex === 0 ? '2px' : '4px'})`,
+                              width: `calc(${widthPct}% - ${item.totalCols === 1 ? '4px' : '6px'})`,
+                            }}
+                          >
+                            {isCompact ? (
+                              <div className="flex items-center justify-between w-full h-full gap-2">
+                                <div className="flex items-center gap-1 truncate">
+                                  <span className="font-bold text-[10px] truncate">{isApp ? item.client_name : (item.reason || "Bloqueio")}</span>
+                                  {isApp && <span className="text-[9px] opacity-80 truncate shrink-0 hidden sm:inline">- {item.service_name}</span>}
                                 </div>
-                                <div className="text-[8px] opacity-50 font-bold">
-                                  {durationMinutes} min
+                                <div className="text-right shrink-0 leading-none">
+                                  <div className="text-[9px] font-black opacity-70">
+                                    {format(item.startDate, 'HH:mm')}-{format(item.endDate, 'HH:mm')}
+                                  </div>
+                                  <div className="text-[8px] opacity-50 font-bold">
+                                    {item.durationMinutes} min
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            ) : (
+                              <>
+                                <div className="flex items-start justify-between gap-1 sm:gap-2 w-full">
+                                  <div className="font-bold text-[11px] sm:text-xs leading-tight truncate flex items-center gap-1">
+                                    <span className="truncate">{isApp ? item.client_name : (item.reason || "Bloqueio")}</span>
+                                    {isApp && item.notes && (
+                                      <span className="font-normal text-[9px] sm:text-[10px] opacity-50 italic truncate shrink">
+                                        ({item.notes})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div className="text-[9px] sm:text-[10px] font-black opacity-70 leading-none">
+                                      {format(item.startDate, 'HH:mm')} - {format(item.endDate, 'HH:mm')}
+                                    </div>
+                                    <div className="text-[8px] sm:text-[9px] opacity-60 font-bold">
+                                      {item.durationMinutes} minutos
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="text-[10px] sm:text-xs opacity-80 truncate flex items-center gap-1 font-medium w-full">
+                                  {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
+                                </div>
+
+                                {isApp && item.notes && height >= 80 && (
+                                  <div className="text-[9px] sm:text-[10px] opacity-60 line-clamp-2 italic leading-tight w-full mt-0.5">
+                                    "{item.notes}"
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" side="bottom" className="bg-card border-border w-48 z-50">
+                          {isApp ? (
+                            <>
+                              <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
+                                Ações do Agendamento
+                              </div>
+                              <DropdownMenuItem onClick={() => handleEditAppointment(item.id)}>
+                                <RefreshCw className="w-4 h-4 mr-2" /> Editar Agendamento
+                              </DropdownMenuItem>
+                              {item.status === 'pending' && (
+                                <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}>
+                                  <Check className="w-4 h-4 mr-2 text-blue-500" /> Confirmar
+                                </DropdownMenuItem>
+                              )}
+                              {item.status === 'confirmed' && (
+                                <DropdownMenuItem onClick={() => handleOpenComplete(item.id)} className="font-bold text-green-500">
+                                  <Check className="w-4 h-4 mr-2" /> Concluir Atendimento
+                                </DropdownMenuItem>
+                              )}
+                            </>
                           ) : (
                             <>
-                              <div className="flex items-start justify-between gap-1 sm:gap-2 w-full">
-                                <div className="font-bold text-[11px] sm:text-xs leading-tight truncate flex items-center gap-1">
-                                  <span className="truncate">{isApp ? item.client_name : "Bloqueio"}</span>
-                                  {isApp && item.notes && (
-                                    <span className="font-normal text-[9px] sm:text-[10px] opacity-50 italic truncate shrink">
-                                      ({item.notes})
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="text-[9px] sm:text-[10px] font-black opacity-70 leading-none">
-                                    {format(startDate, 'HH:mm')} - {format(endDate, 'HH:mm')}
+                              {(item as any).is_virtual_break ? (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-amber-500">
+                                    Intervalo do Barbeiro
                                   </div>
-                                  <div className="text-[8px] sm:text-[9px] opacity-60 font-bold">
-                                    {durationMinutes} minutos
+                                  <div className="px-2 py-1.5 text-[11px] text-muted-foreground leading-normal">
+                                    Definido no cadastro de horários de trabalho deste barbeiro.
                                   </div>
-                                </div>
-                              </div>
-
-                              <div className="text-[10px] sm:text-xs opacity-80 truncate flex items-center gap-1 font-medium w-full">
-                                {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
-                              </div>
-
-                              {isApp && item.notes && height >= 80 && (
-                                <div className="text-[9px] sm:text-[10px] opacity-60 line-clamp-2 italic leading-tight w-full mt-0.5">
-                                  "{item.notes}"
-                                </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-destructive">
+                                    {item.reason || "Bloqueio de Agenda"}
+                                  </div>
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      if (confirm('Deseja realmente remover este bloqueio?')) {
+                                        deleteBlockMutation.mutate(item.id);
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
+                                  </DropdownMenuItem>
+                                </>
                               )}
                             </>
                           )}
-                        </div>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="center" side="bottom" className="bg-card border-border w-48 z-50">
-                        {isApp ? (
-                          <>
-                            <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
-                              Ações do Agendamento
-                            </div>
-                            <DropdownMenuItem onClick={() => handleEditAppointment(item.id)}>
-                              <RefreshCw className="w-4 h-4 mr-2" /> Editar Agendamento
-                            </DropdownMenuItem>
-                            {item.status === 'pending' && (
-                              <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}>
-                                <Check className="w-4 h-4 mr-2 text-blue-500" /> Confirmar
-                              </DropdownMenuItem>
-                            )}
-                            {item.status === 'confirmed' && (
-                              <DropdownMenuItem onClick={() => handleOpenComplete(item.id)} className="font-bold text-green-500">
-                                <Check className="w-4 h-4 mr-2" /> Concluir Atendimento
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'cancelled' })} className="text-destructive">
-                              <XCircle className="w-4 h-4 mr-2" /> Cancelar
-                            </DropdownMenuItem>
-                            {item.notes?.includes('Recorrente') && (
-                              <DropdownMenuItem onClick={() => cancelRecurringMutation.mutate(item.id)} className="text-destructive font-bold">
-                                <XCircle className="w-4 h-4 mr-2" /> Cancelar Todos
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'no_show' })}>
-                              <User className="w-4 h-4 mr-2 text-gray-500" /> Faltou
-                            </DropdownMenuItem>
-                          </>
-                        ) : (
-                          <>
-                            <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-destructive">
-                              Bloqueio de Agenda
-                            </div>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => {
-                                if (confirm('Deseja realmente remover este bloqueio?')) {
-                                  deleteBlockMutation.mutate(item.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  );
-                })}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}
@@ -1297,30 +1379,62 @@ export default function Agenda() {
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditAppointmentModal(false)}>Cancelar</Button>
-            <Button
-              className="px-6 font-bold"
-              disabled={isFetchingEditData || !editService || updateAppointmentMutation.isPending}
-              onClick={() => {
-                updateAppointmentMutation.mutate({
-                  id: editingAppointment.id,
-                  data: {
-                    service: editService.id,
-                    payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
-                    total_price: editingAppointment.status === 'completed'
-                      ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0)
-                      : editService.price,
-                    discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
-                    tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
-                  }
-                });
-              }}
-            >
-              {updateAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Salvar Alterações
-            </Button>
-          </DialogFooter>
+          <div className="flex flex-col gap-3 mt-4 border-t border-border/50 pt-4">
+            {editingAppointment?.status !== 'completed' && editingAppointment?.status !== 'cancelled' && editingAppointment?.status !== 'no_show' && (
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-muted border-gray-200 h-10 text-xs sm:text-sm font-medium"
+                  onClick={() => {
+                    if (editingAppointment && confirm('Deseja realmente marcar este cliente como faltoso?')) {
+                      updateStatusMutation.mutate({ id: editingAppointment.id, status: 'no_show' });
+                      setShowEditAppointmentModal(false);
+                    }
+                  }}
+                >
+                  Faltou
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 h-10 text-xs sm:text-sm font-medium"
+                  onClick={() => {
+                    if (editingAppointment && confirm('Deseja realmente cancelar este agendamento?')) {
+                      updateStatusMutation.mutate({ id: editingAppointment.id, status: 'cancelled' });
+                      setShowEditAppointmentModal(false);
+                    }
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            )}
+            <div className="flex gap-2 justify-end w-full">
+              <Button variant="outline" className="h-10" onClick={() => setShowEditAppointmentModal(false)}>Voltar</Button>
+              <Button
+                className="px-6 font-bold h-10 bg-primary text-primary-foreground hover:bg-primary/90"
+                disabled={isFetchingEditData || !editService || updateAppointmentMutation.isPending}
+                onClick={() => {
+                  updateAppointmentMutation.mutate({
+                    id: editingAppointment.id,
+                    data: {
+                      service: editService.id,
+                      payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
+                      total_price: editingAppointment.status === 'completed'
+                        ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0)
+                        : editService.price,
+                      discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
+                      tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
+                    }
+                  });
+                }}
+              >
+                {updateAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Salvar Alterações
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

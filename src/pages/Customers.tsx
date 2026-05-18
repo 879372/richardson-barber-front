@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { User, Phone, Calendar, History, Loader2, Save, MessageSquare, Search } from 'lucide-react';
+import { User, Phone, Calendar, History, Loader2, Save, MessageSquare, Search, Plus, Trash2 } from 'lucide-react';
 import { 
   Sheet, 
   SheetContent, 
@@ -26,6 +26,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from 'sonner';
 
 type Customer = {
@@ -37,6 +44,7 @@ type Customer = {
   phone: string;
   birth_date: string;
   internal_notes: string;
+  debt_balance?: number;
 };
 
 type Appointment = {
@@ -107,6 +115,75 @@ export default function Customers() {
       return res.data;
     },
     enabled: !!selectedCustomer,
+  });
+
+  // Debtors states & helpers
+  const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
+  const [isPayOpen, setIsPayOpen] = useState(false);
+  const [selectedDebt, setSelectedDebt] = useState<any | null>(null);
+  const [payPayments, setPayPayments] = useState<{ method: string; amount: string }[]>([]);
+
+  const { data: debts, isLoading: isDebtsLoading } = useQuery({
+    queryKey: ['debts'],
+    queryFn: async () => {
+      const res = await api.get<any[]>('/debts/');
+      return res.data;
+    },
+  });
+
+  const customerDebts = debts?.filter(d => d.client_id === selectedCustomerForPayment?.id) || [];
+
+  const maskCurrency = (value: string) => {
+    let clean = value.replace(/\D/g, '');
+    if (!clean) return '0,00';
+    let num = parseInt(clean) / 100;
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const unmaskCurrency = (value: string) => {
+    if (!value) return '0';
+    return value.replace(/\./g, '').replace(',', '.');
+  };
+
+  const addPayPaymentRow = () => {
+    setPayPayments([...payPayments, { method: 'cash', amount: '0,00' }]);
+  };
+
+  const removePayPaymentRow = (index: number) => {
+    setPayPayments(payPayments.filter((_, i) => i !== index));
+  };
+
+  const updatePayPayment = (index: number, field: string, value: string) => {
+    const newPayments = [...payPayments];
+    newPayments[index] = { ...newPayments[index], [field]: value };
+    setPayPayments(newPayments);
+  };
+
+  const totalPayPaid = payPayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+
+  const payDebtMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDebt) return;
+      return api.post('/debts/', {
+        type: selectedDebt.type,
+        id: selectedDebt.id,
+        payments: payPayments.map(p => ({
+          method: p.method,
+          amount: unmaskCurrency(p.amount)
+        }))
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setIsPayOpen(false);
+      setSelectedDebt(null);
+      toast.success('Pagamento registrado com sucesso!');
+    },
+    onError: (err: any) => {
+      const errMsg = err.response?.data?.error || 'Erro ao registrar pagamento.';
+      toast.error(errMsg);
+    }
   });
 
   const [saved, setSaved] = useState(false);
@@ -221,6 +298,7 @@ export default function Customers() {
                   <TableHead>Contato</TableHead>
                   <TableHead>Data Nasc.</TableHead>
                   <TableHead>Observações</TableHead>
+                  <TableHead className="text-right">Saldo Devedor</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -232,7 +310,7 @@ export default function Customers() {
                            (c.phone || '').includes(search);
                   }).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                       {searchTerm ? "Nenhum cliente encontrado para esta busca." : "Nenhum cliente cadastrado."}
                     </TableCell>
                   </TableRow>
@@ -272,14 +350,36 @@ export default function Customers() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-primary hover:text-primary hover:bg-primary/10 font-bold"
-                          onClick={() => handleOpenDetails(customer)}
-                        >
-                          Ver Ficha
-                        </Button>
+                        {customer.debt_balance && parseFloat(customer.debt_balance as any) > 0.01 ? (
+                          <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 font-black">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(customer.debt_balance as any))}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end items-center gap-2">
+                          {customer.debt_balance && parseFloat(customer.debt_balance as any) > 0.01 && (
+                            <Button 
+                              size="sm" 
+                              className="bg-amber-500 hover:bg-amber-600 text-white font-bold h-8 text-xs shrink-0"
+                              onClick={() => {
+                                setSelectedCustomerForPayment(customer);
+                              }}
+                            >
+                              Pagar Débito
+                            </Button>
+                          )}
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-primary hover:text-primary hover:bg-primary/10 font-bold h-8 text-xs shrink-0"
+                            onClick={() => handleOpenDetails(customer)}
+                          >
+                            Ver Ficha
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -468,6 +568,185 @@ export default function Customers() {
               Salvar Cliente
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Client's Specific Debts List Dialog */}
+      <Dialog open={!!selectedCustomerForPayment} onOpenChange={(open) => !open && setSelectedCustomerForPayment(null)}>
+        <DialogContent className="sm:max-w-[600px] bg-card border-border overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-primary">
+              <Phone className="w-5 h-5 text-amber-500 rotate-90" />
+              Débitos de {selectedCustomerForPayment?.first_name || selectedCustomerForPayment?.username}
+            </DialogTitle>
+            <DialogDescription>
+              Selecione o agendamento ou venda abaixo para realizar a amortização do saldo devedor.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {isDebtsLoading ? (
+              <div className="text-center py-6 italic">Carregando contas...</div>
+            ) : customerDebts.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground italic">Nenhum saldo devedor pendente para este cliente.</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right font-bold text-amber-500">Pendente</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {customerDebts.map((debt: any) => (
+                    <TableRow 
+                      key={`${debt.type}-${debt.id}`} 
+                      className="cursor-pointer hover:bg-primary/5 transition-colors"
+                      onClick={() => {
+                        setSelectedDebt(debt);
+                        setPayPayments([{ method: 'pix', amount: maskCurrency((debt.remaining_debt * 100).toFixed(0)) }]);
+                        setIsPayOpen(true);
+                      }}
+                    >
+                      <TableCell className="text-xs text-muted-foreground">
+                        {format(new Date(debt.date), 'dd/MM/yy HH:mm')}
+                      </TableCell>
+                      <TableCell className="text-xs">{debt.description}</TableCell>
+                      <TableCell className="text-right">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(debt.total_price)}
+                      </TableCell>
+                      <TableCell className="text-right font-black text-amber-500">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(debt.remaining_debt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedCustomerForPayment(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Amortization (Payment) Dialog */}
+      <Dialog open={isPayOpen} onOpenChange={setIsPayOpen}>
+        <DialogContent className="sm:max-w-[500px] bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <User className="w-5 h-5 text-amber-500" />
+              Receber Débito Parcial/Total
+            </DialogTitle>
+            <DialogDescription>
+              Amortize a dívida de <strong>{selectedCustomerForPayment?.first_name || selectedCustomerForPayment?.username}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedDebt && (
+            <div className="grid gap-4 py-4">
+              <div className="p-3 bg-muted/50 rounded-xl space-y-1.5 border border-border/50 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tight">Total da Conta:</span>
+                  <span className="font-semibold">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDebt.total_price)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tight">Já Pago:</span>
+                  <span className="font-semibold text-green-500">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDebt.total_paid)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-border/20 pt-1.5 mt-1.5 font-bold">
+                  <span className="text-amber-500 text-xs font-bold uppercase tracking-tight">Pendente:</span>
+                  <span className="text-amber-500">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDebt.remaining_debt)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Formas de Pagamento</label>
+                {payPayments.map((payment, index) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Select
+                        value={payment.method}
+                        onValueChange={(val) => updatePayPayment(index, 'method', val)}
+                      >
+                        <SelectTrigger className="bg-background border-border/50 h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border-border">
+                          <SelectItem value="pix">PIX</SelectItem>
+                          <SelectItem value="cash">Dinheiro</SelectItem>
+                          <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                          <SelectItem value="debit">Cartão de Débito</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-36 relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground text-sm font-bold">R$</span>
+                      <Input
+                        type="text"
+                        className="pl-9 bg-background border-border/50 h-11 font-semibold"
+                        value={payment.amount}
+                        onChange={(e) => updatePayPayment(index, 'amount', maskCurrency(e.target.value))}
+                      />
+                    </div>
+                    {payPayments.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive h-11 w-11"
+                        onClick={() => removePayPaymentRow(index)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full gap-2 border-dashed h-11 mt-1" 
+                onClick={addPayPaymentRow}
+              >
+                <Plus className="w-4 h-4" /> Adicionar forma de pagamento
+              </Button>
+
+              <div className={`p-3 rounded-xl flex flex-col gap-1 transition-colors ${totalPayPaid <= selectedDebt.remaining_debt + 0.01 ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                <div className="flex justify-between items-center text-sm font-bold">
+                  <span>Total a Amortizar:</span>
+                  <span>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPayPaid)}
+                  </span>
+                </div>
+                {totalPayPaid > selectedDebt.remaining_debt + 0.01 && (
+                  <span className="text-[10px] text-red-500 font-medium">
+                    O valor excede o saldo devedor pendente!
+                  </span>
+                )}
+              </div>
+
+              <DialogFooter className="mt-4">
+                <Button variant="outline" onClick={() => setIsPayOpen(false)}>Cancelar</Button>
+                <Button 
+                  className="h-11 font-bold bg-amber-500 hover:bg-amber-600 text-white"
+                  disabled={payDebtMutation.isPending || totalPayPaid === 0 || totalPayPaid > selectedDebt.remaining_debt + 0.01}
+                  onClick={() => payDebtMutation.mutate()}
+                >
+                  {payDebtMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Confirmar
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

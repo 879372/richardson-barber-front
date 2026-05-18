@@ -4,9 +4,9 @@ import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, Scissors, ChevronDown, User, Package } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Plus, FileText, Loader2, Scissors, ChevronDown, User, Package, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from 'sonner';
@@ -39,6 +39,18 @@ const formatCurrency = (value: number) => {
   }).format(value);
 };
 
+const maskCurrency = (value: string) => {
+  let clean = value.replace(/\D/g, '');
+  if (!clean) return '0,00';
+  let num = parseInt(clean) / 100;
+  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const unmaskCurrency = (value: string) => {
+  if (!value) return '0';
+  return value.replace(/\./g, '').replace(',', '.');
+};
+
 const methodLabels: Record<string, string> = {
   pix: 'PIX',
   cash: 'Dinheiro',
@@ -68,6 +80,28 @@ export default function Financeiro() {
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
   
+  // Debtors states
+  const [isDebtorsOpen, setIsDebtorsOpen] = useState(false);
+  const [selectedDebt, setSelectedDebt] = useState<any | null>(null);
+  const [isPayOpen, setIsPayOpen] = useState(false);
+  const [payPayments, setPayPayments] = useState<{ method: string; amount: string }[]>([]);
+
+  const addPayPaymentRow = () => {
+    setPayPayments([...payPayments, { method: 'cash', amount: '0,00' }]);
+  };
+
+  const removePayPaymentRow = (index: number) => {
+    setPayPayments(payPayments.filter((_, i) => i !== index));
+  };
+
+  const updatePayPayment = (index: number, field: string, value: string) => {
+    const newPayments = [...payPayments];
+    newPayments[index] = { ...newPayments[index], [field]: value };
+    setPayPayments(newPayments);
+  };
+
+  const totalPayPaid = payPayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+
   // Form state
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
@@ -78,6 +112,14 @@ export default function Financeiro() {
     queryKey: ['financial-summary', startDate, endDate],
     queryFn: async () => {
       const res = await api.get<FinancialSummary>(`/financial-summary/?start_date=${startDate}&end_date=${endDate}`);
+      return res.data;
+    },
+  });
+
+  const { data: debts, isLoading: isDebtsLoading } = useQuery({
+    queryKey: ['debts'],
+    queryFn: async () => {
+      const res = await api.get<any[]>('/debts/');
       return res.data;
     },
   });
@@ -101,6 +143,32 @@ export default function Financeiro() {
     onError: () => toast.error('Erro ao registrar despesa.')
   });
 
+  const payDebtMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDebt) return;
+      return api.post('/debts/', {
+        type: selectedDebt.type,
+        id: selectedDebt.id,
+        payments: payPayments.map(p => ({
+          method: p.method,
+          amount: unmaskCurrency(p.amount)
+        }))
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['financial-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setIsPayOpen(false);
+      setSelectedDebt(null);
+      toast.success('Pagamento registrado com sucesso!');
+    },
+    onError: (err: any) => {
+      const errMsg = err.response?.data?.error || 'Erro ao registrar pagamento.';
+      toast.error(errMsg);
+    }
+  });
+
   const handlePrint = () => {
     window.print();
   };
@@ -109,6 +177,8 @@ export default function Financeiro() {
     setStartDate(format(firstDay, 'yyyy-MM-dd'));
     setEndDate(format(lastDay, 'yyyy-MM-dd'));
   };
+
+  const totalPendingDebts = debts?.reduce((acc, d) => acc + d.remaining_debt, 0) || 0;
 
   const stats = [
     {
@@ -138,6 +208,15 @@ export default function Financeiro() {
       icon: TrendingDown,
       color: 'text-red-500',
       description: 'Gastos totais no período'
+    },
+    {
+      title: 'A Receber (Devedores)',
+      value: formatCurrency(totalPendingDebts),
+      icon: DollarSign,
+      color: 'text-amber-500',
+      description: 'Débitos de clientes pendentes',
+      clickable: true,
+      onClick: () => setIsDebtorsOpen(true)
     },
     {
       title: 'Resultado',
@@ -189,11 +268,15 @@ export default function Financeiro() {
         <Button variant="outline" size="sm" className="w-full sm:w-auto h-9" onClick={setThisMonth}>Mês Atual</Button>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-5">
-        {stats.map((stat, i) => {
+      <div className="grid gap-6 md:grid-cols-6 sm:grid-cols-2">
+        {stats.map((stat: any, i) => {
           const Icon = stat.icon;
           return (
-            <Card key={i} className="border-border/50 bg-card/50 backdrop-blur-sm print:shadow-none print:border-gray-200 overflow-hidden relative group">
+            <Card 
+              key={i} 
+              className={`border-border/50 bg-card/50 backdrop-blur-sm print:shadow-none print:border-gray-200 overflow-hidden relative group transition-all duration-300 ${stat.clickable ? 'cursor-pointer hover:bg-primary/5 hover:border-amber-500/50 shadow-md ring-1 ring-amber-500/10' : ''}`}
+              onClick={stat.onClick}
+            >
               <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-5 transition-transform group-hover:scale-110 ${stat.color.replace('text', 'bg')}`} />
               <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                 <CardTitle className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{stat.title}</CardTitle>
@@ -201,6 +284,9 @@ export default function Financeiro() {
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold">{isLoading ? '...' : stat.value}</div>
+                {stat.clickable && (
+                  <div className="text-[9px] font-bold text-amber-500 mt-1 uppercase tracking-widest animate-pulse">Clique para ver</div>
+                )}
               </CardContent>
             </Card>
           );
@@ -370,6 +456,179 @@ export default function Financeiro() {
               Salvar Despesa
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Debtors List Modal */}
+      <Dialog open={isDebtorsOpen} onOpenChange={setIsDebtorsOpen}>
+        <DialogContent className="sm:max-w-[700px] bg-card border-border overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-primary flex items-center gap-2">
+              <TrendingDown className="w-6 h-6 text-amber-500" />
+              Clientes Devedores (Contas a Receber)
+            </DialogTitle>
+            <DialogDescription>
+              Clique sobre um registro para amortizar o débito (total ou parcial).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {isDebtsLoading ? (
+              <div className="text-center py-10 italic">Carregando devedores...</div>
+            ) : !debts || debts.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground italic">Nenhum cliente devedor pendente.</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Pago</TableHead>
+                    <TableHead className="text-right font-bold text-amber-500">Pendente</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {debts.map((debt: any) => (
+                    <TableRow 
+                      key={`${debt.type}-${debt.id}`} 
+                      className="cursor-pointer hover:bg-primary/5 transition-colors"
+                      onClick={() => {
+                        setSelectedDebt(debt);
+                        setPayPayments([{ method: 'pix', amount: maskCurrency((debt.remaining_debt * 100).toFixed(0)) }]);
+                        setIsPayOpen(true);
+                      }}
+                    >
+                      <TableCell className="font-bold">{debt.client_name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {format(new Date(debt.date), 'dd/MM/yy HH:mm')}
+                      </TableCell>
+                      <TableCell className="text-xs">{debt.description}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(debt.total_price)}</TableCell>
+                      <TableCell className="text-right text-green-500">{formatCurrency(debt.total_paid)}</TableCell>
+                      <TableCell className="text-right font-black text-amber-500">{formatCurrency(debt.remaining_debt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDebtorsOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Amortization (Payment) Dialog */}
+      <Dialog open={isPayOpen} onOpenChange={setIsPayOpen}>
+        <DialogContent className="sm:max-w-[500px] bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-amber-500" />
+              Receber Pagamento
+            </DialogTitle>
+            <DialogDescription>
+              Registre o pagamento para o débito de <strong>{selectedDebt?.client_name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedDebt && (
+            <div className="grid gap-4 py-4">
+              <div className="p-3 bg-muted/50 rounded-xl space-y-1.5 border border-border/50 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground text-xs font-bold uppercase">Total da Conta:</span>
+                  <span className="font-semibold">{formatCurrency(selectedDebt.total_price)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground text-xs font-bold uppercase">Valor Já Pago:</span>
+                  <span className="font-semibold text-green-500">{formatCurrency(selectedDebt.total_paid)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border/20 pt-1.5 mt-1.5 font-bold">
+                  <span className="text-amber-500 text-xs font-bold uppercase">Saldo Devedor:</span>
+                  <span className="text-amber-500">{formatCurrency(selectedDebt.remaining_debt)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Formas de Pagamento</label>
+                {payPayments.map((payment, index) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Select
+                        value={payment.method}
+                        onValueChange={(val) => updatePayPayment(index, 'method', val)}
+                      >
+                        <SelectTrigger className="bg-background border-border/50 h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border-border">
+                          <SelectItem value="pix">PIX</SelectItem>
+                          <SelectItem value="cash">Dinheiro</SelectItem>
+                          <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                          <SelectItem value="debit">Cartão de Débito</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-36 relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        className="pl-8 bg-background border-border/50 h-11 font-semibold"
+                        value={payment.amount}
+                        onChange={(e) => updatePayPayment(index, 'amount', maskCurrency(e.target.value))}
+                      />
+                    </div>
+                    {payPayments.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive h-11 w-11"
+                        onClick={() => removePayPaymentRow(index)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full gap-2 border-dashed h-11 mt-1" 
+                onClick={addPayPaymentRow}
+              >
+                <Plus className="w-4 h-4" /> Adicionar forma de pagamento
+              </Button>
+
+              <div className={`p-3 rounded-xl flex flex-col gap-1 transition-colors ${totalPayPaid <= selectedDebt.remaining_debt + 0.01 ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                <div className="flex justify-between items-center text-sm font-bold">
+                  <span>Total a Amortizar:</span>
+                  <span>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPayPaid)}
+                  </span>
+                </div>
+                {totalPayPaid > selectedDebt.remaining_debt + 0.01 && (
+                  <span className="text-[10px] text-red-500 font-medium">
+                    O valor excede o saldo devedor pendente!
+                  </span>
+                )}
+              </div>
+
+              <DialogFooter className="mt-4">
+                <Button variant="outline" onClick={() => setIsPayOpen(false)}>Cancelar</Button>
+                <Button 
+                  className="h-11 font-bold bg-amber-500 hover:bg-amber-600 text-white"
+                  disabled={payDebtMutation.isPending || totalPayPaid === 0 || totalPayPaid > selectedDebt.remaining_debt + 0.01}
+                  onClick={() => payDebtMutation.mutate()}
+                >
+                  {payDebtMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Confirmar Recebimento
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
