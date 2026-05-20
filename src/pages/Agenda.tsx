@@ -25,6 +25,16 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -194,6 +204,17 @@ export default function Agenda() {
   const [isFetchingAppData, setIsFetchingAppData] = useState(false);
   const [completeDiscount, setCompleteDiscount] = useState<string>('0,00');
   const [completeTip, setCompleteTip] = useState<string>('0,00');
+
+  // Fiado confirmation states
+  const [showFiadoConfirm, setShowFiadoConfirm] = useState(false);
+  const [showSaleFiadoConfirm, setShowSaleFiadoConfirm] = useState(false);
+
+  // Cancel/No-show confirmation states (replacing native confirm())
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showNoShowConfirm, setShowNoShowConfirm] = useState(false);
+  const [showCancelCompletedConfirm, setShowCancelCompletedConfirm] = useState(false);
+  const [showRemoveBlockConfirm, setShowRemoveBlockConfirm] = useState(false);
+  const [blockToRemove, setBlockToRemove] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -468,6 +489,22 @@ export default function Agenda() {
     onError: () => toast.error('Erro ao atualizar agendamento.'),
   });
 
+  const cancelCompletedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/cancel_completed/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      setShowEditAppointmentModal(false);
+      setEditingAppointment(null);
+      setShowCancelCompletedConfirm(false);
+      toast.success('Agendamento cancelado. Todos os pagamentos e vendas associadas foram revertidos.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao cancelar agendamento concluído.'),
+  });
+
   const handleEditAppointment = async (appId: number) => {
     setShowEditAppointmentModal(true);
     setIsFetchingEditData(true);
@@ -597,7 +634,14 @@ export default function Agenda() {
   const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))) < 0.01;
 
   const totalPaid = payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
-  const isTotalValid = activeAppointment && Math.abs(totalPaid - (parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) + (parseFloat(unmaskCurrency(completeTip)) || 0))) < 0.01;
+  const expectedTotal = activeAppointment ? parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) + (parseFloat(unmaskCurrency(completeTip)) || 0) : 0;
+  const isTotalValid = activeAppointment && Math.abs(totalPaid - expectedTotal) < 0.01;
+  const isTotalExceeding = totalPaid > expectedTotal + 0.01;
+  const remainingDebt = expectedTotal - totalPaid;
+
+  const expectedSaleTotal = totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0);
+  const isSaleExceeding = totalSalePaid > expectedSaleTotal + 0.01;
+  const remainingSaleDebt = expectedSaleTotal - totalSalePaid;
 
   const isWalkInValid = walkInClient && walkInService && walkInBarber && walkInTime;
 
@@ -1052,9 +1096,8 @@ export default function Agenda() {
                                   <DropdownMenuItem
                                     className="text-destructive"
                                     onClick={() => {
-                                      if (confirm('Deseja realmente remover este bloqueio?')) {
-                                        deleteBlockMutation.mutate(item.id);
-                                      }
+                                      setBlockToRemove(item.id);
+                                      setShowRemoveBlockConfirm(true);
                                     }}
                                   >
                                     <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
@@ -1199,8 +1242,13 @@ export default function Agenda() {
                   <Plus className="w-4 h-4" /> Adicionar forma de pagamento
                 </Button>
 
-                <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                  <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : isTotalExceeding ? 'bg-red-500/10 text-red-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                    {!isTotalValid && !isTotalExceeding && remainingDebt > 0.01 && (
+                      <span className="text-xs opacity-80">Faltam {formatCurrency(remainingDebt)} — será registrado como fiado</span>
+                    )}
+                  </div>
                   <span className="font-bold">{formatCurrency(totalPaid)}</span>
                 </div>
               </>
@@ -1211,13 +1259,20 @@ export default function Agenda() {
             <Button variant="outline" onClick={() => setShowCompleteModal(false)}>Cancelar</Button>
             <Button
               className="px-6 font-bold"
-              disabled={isFetchingAppData || !isTotalValid || completeWithPaymentsMutation.isPending}
-              onClick={() => activeAppointment && completeWithPaymentsMutation.mutate({
-                id: activeAppointment.id,
-                payments,
-                discount: completeDiscount || '0',
-                tip: completeTip || '0'
-              })}
+              disabled={isFetchingAppData || isTotalExceeding || completeWithPaymentsMutation.isPending}
+              onClick={() => {
+                if (!activeAppointment) return;
+                if (!isTotalValid && remainingDebt > 0.01) {
+                  setShowFiadoConfirm(true);
+                } else {
+                  completeWithPaymentsMutation.mutate({
+                    id: activeAppointment.id,
+                    payments,
+                    discount: completeDiscount || '0',
+                    tip: completeTip || '0'
+                  });
+                }
+              }}
             >
               {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Finalizar Atendimento
@@ -1386,12 +1441,7 @@ export default function Agenda() {
                   type="button"
                   variant="outline"
                   className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-muted border-gray-200 h-10 text-xs sm:text-sm font-medium"
-                  onClick={() => {
-                    if (editingAppointment && confirm('Deseja realmente marcar este cliente como faltoso?')) {
-                      updateStatusMutation.mutate({ id: editingAppointment.id, status: 'no_show' });
-                      setShowEditAppointmentModal(false);
-                    }
-                  }}
+                  onClick={() => setShowNoShowConfirm(true)}
                 >
                   Faltou
                 </Button>
@@ -1399,16 +1449,23 @@ export default function Agenda() {
                   type="button"
                   variant="outline"
                   className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 h-10 text-xs sm:text-sm font-medium"
-                  onClick={() => {
-                    if (editingAppointment && confirm('Deseja realmente cancelar este agendamento?')) {
-                      updateStatusMutation.mutate({ id: editingAppointment.id, status: 'cancelled' });
-                      setShowEditAppointmentModal(false);
-                    }
-                  }}
+                  onClick={() => setShowCancelConfirm(true)}
                 >
                   Cancelar
                 </Button>
               </div>
+            )}
+            {editingAppointment?.status === 'completed' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 h-10 text-xs sm:text-sm font-bold"
+                disabled={cancelCompletedMutation.isPending}
+                onClick={() => setShowCancelCompletedConfirm(true)}
+              >
+                {cancelCompletedMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Cancelar Agendamento Concluído
+              </Button>
             )}
             <div className="flex gap-2 justify-end w-full">
               <Button variant="outline" className="h-10" onClick={() => setShowEditAppointmentModal(false)}>Voltar</Button>
@@ -1684,14 +1741,17 @@ export default function Agenda() {
                 </Button>
               </div>
 
-              <div className={`p-4 rounded-xl flex justify-between items-center transition-colors ${isSaleTotalValid ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+              <div className={`p-4 rounded-xl flex justify-between items-center transition-colors ${isSaleTotalValid ? 'bg-green-500/10 text-green-500 border border-green-500/20' : isSaleExceeding ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'}`}>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Total Recebido</span>
                   <span className="font-black text-xl leading-none">{formatCurrency(totalSalePaid)}</span>
+                  {!isSaleTotalValid && !isSaleExceeding && remainingSaleDebt > 0.01 && (
+                    <span className="text-[10px] font-bold mt-1 opacity-80">Faltam {formatCurrency(remainingSaleDebt)} — será registrado como fiado</span>
+                  )}
                 </div>
-                {!isSaleTotalValid && totalProducts > 0 && (
+                {isSaleExceeding && totalProducts > 0 && (
                   <div className="text-[10px] font-bold text-right italic leading-tight">
-                    Faltam {formatCurrency(totalProducts - totalSalePaid)}
+                    Excede {formatCurrency(totalSalePaid - expectedSaleTotal)}
                   </div>
                 )}
               </div>
@@ -1707,14 +1767,20 @@ export default function Agenda() {
             </Button>
             <Button
               className="px-10 font-black h-12 shadow-xl shadow-primary/20"
-              disabled={!isSaleTotalValid || createSaleMutation.isPending}
-              onClick={() => createSaleMutation.mutate({
-                appointment: activeAppointment?.id,
-                client: activeAppointment?.client,
-                products: selectedProducts,
-                payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
-                discount: unmaskCurrency(saleDiscount) || '0'
-              })}
+              disabled={selectedProducts.length === 0 || isSaleExceeding || createSaleMutation.isPending}
+              onClick={() => {
+                if (!isSaleTotalValid && remainingSaleDebt > 0.01) {
+                  setShowSaleFiadoConfirm(true);
+                } else {
+                  createSaleMutation.mutate({
+                    appointment: activeAppointment?.id,
+                    client: activeAppointment?.client,
+                    products: selectedProducts,
+                    payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                    discount: unmaskCurrency(saleDiscount) || '0'
+                  });
+                }
+              }}
             >
               {createSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Registrar Venda
@@ -2309,6 +2375,221 @@ export default function Agenda() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Fiado Confirmation - Appointment */}
+      <AlertDialog open={showFiadoConfirm} onOpenChange={setShowFiadoConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-yellow-500" />
+              Pagamento Incompleto
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  O cliente <strong className="text-foreground">{activeAppointment?.client_name}</strong> pagou{' '}
+                  <strong className="text-foreground">{formatCurrency(totalPaid)}</strong> de um total de{' '}
+                  <strong className="text-foreground">{formatCurrency(expectedTotal)}</strong>.
+                </p>
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                  <span className="text-sm font-medium">Valor restante (fiado):</span>
+                  <span className="font-black text-lg">{formatCurrency(remainingDebt)}</span>
+                </div>
+                <p className="text-xs opacity-70">
+                  O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              onClick={() => {
+                if (!activeAppointment) return;
+                completeWithPaymentsMutation.mutate({
+                  id: activeAppointment.id,
+                  payments,
+                  discount: completeDiscount || '0',
+                  tip: completeTip || '0'
+                });
+              }}
+            >
+              Confirmar e Finalizar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Fiado Confirmation - Product Sale */}
+      <AlertDialog open={showSaleFiadoConfirm} onOpenChange={setShowSaleFiadoConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-yellow-500" />
+              Pagamento Incompleto da Venda
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  O cliente <strong className="text-foreground">{activeAppointment?.client_name || 'Cliente'}</strong> pagou{' '}
+                  <strong className="text-foreground">{formatCurrency(totalSalePaid)}</strong> de um total de{' '}
+                  <strong className="text-foreground">{formatCurrency(expectedSaleTotal)}</strong>.
+                </p>
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                  <span className="text-sm font-medium">Valor restante (fiado):</span>
+                  <span className="font-black text-lg">{formatCurrency(remainingSaleDebt)}</span>
+                </div>
+                <p className="text-xs opacity-70">
+                  O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              onClick={() => {
+                createSaleMutation.mutate({
+                  appointment: activeAppointment?.id,
+                  client: activeAppointment?.client,
+                  products: selectedProducts,
+                  payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                  discount: unmaskCurrency(saleDiscount) || '0'
+                });
+              }}
+            >
+              Confirmar e Registrar Venda
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* No-Show Confirmation */}
+      <AlertDialog open={showNoShowConfirm} onOpenChange={setShowNoShowConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como Faltoso?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente marcar <strong className="text-foreground">{editingAppointment?.client_name}</strong> como faltoso neste agendamento?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-gray-600 hover:bg-gray-700 text-white font-bold"
+              onClick={() => {
+                if (editingAppointment) {
+                  updateStatusMutation.mutate({ id: editingAppointment.id, status: 'no_show' });
+                  setShowEditAppointmentModal(false);
+                }
+              }}
+            >
+              Confirmar Falta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel (non-completed) Confirmation */}
+      <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar Agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente cancelar o agendamento de <strong className="text-foreground">{editingAppointment?.client_name}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              onClick={() => {
+                if (editingAppointment) {
+                  updateStatusMutation.mutate({ id: editingAppointment.id, status: 'cancelled' });
+                  setShowEditAppointmentModal(false);
+                }
+              }}
+            >
+              Confirmar Cancelamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel Completed Appointment Confirmation */}
+      <AlertDialog open={showCancelCompletedConfirm} onOpenChange={setShowCancelCompletedConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Cancelar Agendamento Concluído?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Tem certeza que deseja cancelar o agendamento concluído de{' '}
+                  <strong className="text-foreground">{editingAppointment?.client_name}</strong>?
+                </p>
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm space-y-1">
+                  <p className="font-bold">Esta ação irá:</p>
+                  <ul className="list-disc list-inside text-xs space-y-0.5">
+                    <li>Remover todos os pagamentos registrados</li>
+                    <li>Reverter vendas de produtos associadas (estoque restaurado)</li>
+                    <li>Cancelar quaisquer débitos pendentes</li>
+                  </ul>
+                </div>
+                <p className="text-xs opacity-70">
+                  Esta ação não pode ser desfeita.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              disabled={cancelCompletedMutation.isPending}
+              onClick={() => {
+                if (editingAppointment) {
+                  cancelCompletedMutation.mutate(editingAppointment.id);
+                }
+              }}
+            >
+              {cancelCompletedMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Sim, Cancelar Tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove Block Confirmation */}
+      <AlertDialog open={showRemoveBlockConfirm} onOpenChange={setShowRemoveBlockConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover Bloqueio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente remover este bloqueio de horário?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              onClick={() => {
+                if (blockToRemove) {
+                  deleteBlockMutation.mutate(blockToRemove);
+                  setBlockToRemove(null);
+                }
+              }}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
