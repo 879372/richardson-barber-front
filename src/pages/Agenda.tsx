@@ -155,6 +155,10 @@ export default function Agenda() {
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
   const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
   const [saleDiscount, setSaleDiscount] = useState<string>('0,00');
+  const [isEditingSale, setIsEditingSale] = useState(false);
+  const [hasAssociatedSale, setHasAssociatedSale] = useState(false);
+  const [cachedAssociatedSale, setCachedAssociatedSale] = useState<any>(null);
+  const [isFetchingAssociatedSale, setIsFetchingAssociatedSale] = useState(false);
 
   // Walk-In State
   const [showWalkInModal, setShowWalkInModal] = useState(false);
@@ -520,16 +524,76 @@ export default function Agenda() {
         setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ',') })) || [{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
         setEditDiscount(app.discount?.replace('.', ',') || '0,00');
         setEditTip(app.tip?.replace('.', ',') || '0,00');
+
+        setIsFetchingAssociatedSale(true);
+        try {
+          const saleRes = await api.get(`/appointments/${appId}/sale/`);
+          setHasAssociatedSale(true);
+          setCachedAssociatedSale(saleRes.data);
+        } catch {
+          setHasAssociatedSale(false);
+          setCachedAssociatedSale(null);
+        } finally {
+          setIsFetchingAssociatedSale(false);
+        }
       } else {
         setEditPayments([]);
         setEditDiscount('0,00');
         setEditTip('0,00');
+        setHasAssociatedSale(false);
+        setCachedAssociatedSale(null);
+        setIsFetchingAssociatedSale(false);
+        setIsEditingSale(false);
       }
     } catch (err) {
       toast.error('Erro ao buscar dados do agendamento.');
       setShowEditAppointmentModal(false);
     } finally {
       setIsFetchingEditData(false);
+    }
+  };
+
+  const handleEditAssociatedSale = async () => {
+    if (!editingAppointment) return;
+
+    setIsFetchingAssociatedSale(true);
+    try {
+      const saleData = cachedAssociatedSale || (await api.get(`/appointments/${editingAppointment.id}/sale/`)).data;
+      setCachedAssociatedSale(saleData);
+      setHasAssociatedSale(true);
+
+      const productById = new Map((products || []).map((p: any) => [p.id, p]));
+
+      setSelectedProducts(
+        (saleData.items || []).map((item: any) => {
+          const prod = productById.get(item.product);
+          return {
+            id: item.product,
+            name: prod?.name || `Produto #${item.product}`,
+            quantity: item.quantity,
+            unit_price: String(item.unit_price)
+          };
+        })
+      );
+
+      const incomingPayments = (saleData.payments || []).map((p: any) => ({
+        method: p.method,
+        amount: String(p.amount).replace('.', ',')
+      }));
+      setSalePayments(incomingPayments.length ? incomingPayments : [{ method: 'pix', amount: '0,00' }]);
+      setSaleDiscount(String(saleData.discount ?? '0').replace('.', ','));
+
+      setIsEditingSale(true);
+      setActiveAppointment(editingAppointment);
+      setProductSearch('');
+      setShowEditAppointmentModal(false);
+      setShowProductSaleModal(true);
+    } catch {
+      setHasAssociatedSale(false);
+      setCachedAssociatedSale(null);
+      toast.error('Este agendamento não possui venda de produtos.');
+    } finally {
+      setIsFetchingAssociatedSale(false);
     }
   };
 
@@ -560,14 +624,36 @@ export default function Agenda() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
       setShowProductSaleModal(false);
       setActiveAppointment(null);
       setSelectedProducts([]);
       setSalePayments([]);
       setSaleDiscount('0,00');
+      setIsEditingSale(false);
       toast.success('Venda registrada com sucesso!');
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar venda.')
+  });
+
+  const updateAssociatedSaleMutation = useMutation({
+    mutationFn: async ({ appointmentId, data }: { appointmentId: number; data: any }) => {
+      return api.patch(`/appointments/${appointmentId}/sale/`, data);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setCachedAssociatedSale(res.data);
+      setShowProductSaleModal(false);
+      setActiveAppointment(null);
+      setSelectedProducts([]);
+      setSalePayments([]);
+      setSaleDiscount('0,00');
+      setIsEditingSale(false);
+      toast.success('Venda atualizada com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao atualizar venda.')
   });
 
   const createWalkInMutation = useMutation({
@@ -1428,6 +1514,20 @@ export default function Agenda() {
                         <Plus className="w-3 h-3" /> Adicionar Pagamento
                       </Button>
                     </div>
+
+                    {hasAssociatedSale && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full gap-2 h-10 text-xs font-bold"
+                        disabled={isFetchingAssociatedSale}
+                        onClick={handleEditAssociatedSale}
+                      >
+                        {isFetchingAssociatedSale && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                        <ShoppingCart className="w-4 h-4" />
+                        Editar Produtos da Venda
+                      </Button>
+                    )}
                   </div>
                 )}
               </>
@@ -1531,12 +1631,25 @@ export default function Agenda() {
       </Dialog>
 
       {/* Standalone Product Sale Modal */}
-      <Dialog open={showProductSaleModal} onOpenChange={setShowProductSaleModal}>
+      <Dialog
+        open={showProductSaleModal}
+        onOpenChange={(open) => {
+          setShowProductSaleModal(open);
+          if (!open) {
+            setIsEditingSale(false);
+            setActiveAppointment(null);
+          }
+        }}
+      >
         <DialogContent className="bg-card border-border sm:max-w-2xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle>Venda de Produtos</DialogTitle>
+            <DialogTitle>{isEditingSale ? 'Editar Venda de Produtos' : 'Venda de Produtos'}</DialogTitle>
             <DialogDescription>
-              Registre os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.
+              {isEditingSale ? (
+                <>Edite os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.</>
+              ) : (
+                <>Registre os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.</>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -1762,28 +1875,40 @@ export default function Agenda() {
             <Button variant="ghost" onClick={() => {
               setShowProductSaleModal(false);
               setActiveAppointment(null);
+              setIsEditingSale(false);
             }}>
-              Pular / Cancelar
+              Cancelar
             </Button>
             <Button
               className="px-10 font-black h-12 shadow-xl shadow-primary/20"
-              disabled={selectedProducts.length === 0 || isSaleExceeding || createSaleMutation.isPending}
+              disabled={selectedProducts.length === 0 || isSaleExceeding || createSaleMutation.isPending || updateAssociatedSaleMutation.isPending}
               onClick={() => {
                 if (!isSaleTotalValid && remainingSaleDebt > 0.01) {
                   setShowSaleFiadoConfirm(true);
                 } else {
-                  createSaleMutation.mutate({
-                    appointment: activeAppointment?.id,
-                    client: activeAppointment?.client,
-                    products: selectedProducts,
-                    payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
-                    discount: unmaskCurrency(saleDiscount) || '0'
-                  });
+                  if (isEditingSale && activeAppointment?.id) {
+                    updateAssociatedSaleMutation.mutate({
+                      appointmentId: activeAppointment.id,
+                      data: {
+                        products: selectedProducts,
+                        payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                        discount: unmaskCurrency(saleDiscount) || '0'
+                      }
+                    });
+                  } else {
+                    createSaleMutation.mutate({
+                      appointment: activeAppointment?.id,
+                      client: activeAppointment?.client,
+                      products: selectedProducts,
+                      payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                      discount: unmaskCurrency(saleDiscount) || '0'
+                    });
+                  }
                 }
               }}
             >
-              {createSaleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Registrar Venda
+              {(createSaleMutation.isPending || updateAssociatedSaleMutation.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {isEditingSale ? 'Salvar Venda' : 'Registrar Venda'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2451,16 +2576,27 @@ export default function Agenda() {
             <AlertDialogAction
               className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
               onClick={() => {
-                createSaleMutation.mutate({
-                  appointment: activeAppointment?.id,
-                  client: activeAppointment?.client,
-                  products: selectedProducts,
-                  payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
-                  discount: unmaskCurrency(saleDiscount) || '0'
-                });
+                if (isEditingSale && activeAppointment?.id) {
+                  updateAssociatedSaleMutation.mutate({
+                    appointmentId: activeAppointment.id,
+                    data: {
+                      products: selectedProducts,
+                      payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                      discount: unmaskCurrency(saleDiscount) || '0'
+                    }
+                  });
+                } else {
+                  createSaleMutation.mutate({
+                    appointment: activeAppointment?.id,
+                    client: activeAppointment?.client,
+                    products: selectedProducts,
+                    payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                    discount: unmaskCurrency(saleDiscount) || '0'
+                  });
+                }
               }}
             >
-              Confirmar e Registrar Venda
+              {isEditingSale ? 'Confirmar e Salvar Venda' : 'Confirmar e Registrar Venda'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
