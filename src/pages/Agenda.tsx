@@ -597,6 +597,21 @@ export default function Agenda() {
     }
   };
 
+  const handleAddAssociatedSale = () => {
+    if (!editingAppointment) return;
+
+    setHasAssociatedSale(false);
+    setCachedAssociatedSale(null);
+    setSelectedProducts([]);
+    setSalePayments([{ method: 'pix', amount: '0,00' }]);
+    setSaleDiscount('0,00');
+    setIsEditingSale(false);
+    setActiveAppointment(editingAppointment);
+    setProductSearch('');
+    setShowEditAppointmentModal(false);
+    setShowProductSaleModal(true);
+  };
+
   const completeWithPaymentsMutation = useMutation({
     mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string }[]; discount: string; tip: string }) => {
       return api.post(`/appointments/${id}/complete_with_payments/`, {
@@ -1515,19 +1530,17 @@ export default function Agenda() {
                       </Button>
                     </div>
 
-                    {hasAssociatedSale && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full gap-2 h-10 text-xs font-bold"
-                        disabled={isFetchingAssociatedSale}
-                        onClick={handleEditAssociatedSale}
-                      >
-                        {isFetchingAssociatedSale && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                        <ShoppingCart className="w-4 h-4" />
-                        Editar Produtos da Venda
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2 h-10 text-xs font-bold"
+                      disabled={isFetchingAssociatedSale}
+                      onClick={hasAssociatedSale ? handleEditAssociatedSale : handleAddAssociatedSale}
+                    >
+                      {isFetchingAssociatedSale && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                      <ShoppingCart className="w-4 h-4" />
+                      {hasAssociatedSale ? 'Editar Produtos da Venda' : 'Adicionar Produtos'}
+                    </Button>
                   </div>
                 )}
               </>
