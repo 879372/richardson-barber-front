@@ -347,6 +347,8 @@ export default function Agenda() {
         d.setDate(d.getDate() + (i * 14));
       } else if (recurrenceType === 'triweekly') {
         d.setDate(d.getDate() + (i * 21));
+      } else if (recurrenceType === 'quadweekly') {
+        d.setDate(d.getDate() + (i * 28));
       } else if (recurrenceType === 'monthly') {
         d.setMonth(d.getMonth() + i);
       } else if (recurrenceType === 'daily') {
@@ -378,6 +380,7 @@ export default function Agenda() {
             'weekly': 'Semanal',
             'biweekly': 'A cada 2 semanas',
             'triweekly': 'A cada 3 semanas',
+            'quadweekly': 'A cada 4 semanas',
             'monthly': 'Mensal',
             'custom': 'Datas Selecionadas'
           };
@@ -2161,7 +2164,8 @@ export default function Agenda() {
                           <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
                           <SelectItem value="biweekly">A cada 2 semanas (Pula 1 semana)</SelectItem>
                           <SelectItem value="triweekly">A cada 3 semanas (Pula 2 semanas)</SelectItem>
-                          <SelectItem value="monthly">Mensal</SelectItem>
+                          <SelectItem value="quadweekly">A cada 4 semanas (Mantém dia da semana)</SelectItem>
+                          <SelectItem value="monthly">Mensal (Muda dia da semana)</SelectItem>
                           <SelectItem value="custom">Personalizado (Calendário)</SelectItem>
                         </SelectContent>
                       </Select>
