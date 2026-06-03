@@ -146,14 +146,14 @@ export default function Agenda() {
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
   const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
   const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
-  const [payments, setPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [payments, setPayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<{ id: number; name: string; quantity: number; unit_price: string }[]>([]);
   const [productSearch, setProductSearch] = useState('');
 
   // New States for Flow
   const [showSaleQuestion, setShowSaleQuestion] = useState(false);
   const [showProductSaleModal, setShowProductSaleModal] = useState(false);
-  const [salePayments, setSalePayments] = useState<{ method: string; amount: string }[]>([]);
+  const [salePayments, setSalePayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
   const [saleDiscount, setSaleDiscount] = useState<string>('0,00');
   const [isEditingSale, setIsEditingSale] = useState(false);
   const [hasAssociatedSale, setHasAssociatedSale] = useState(false);
@@ -201,7 +201,7 @@ export default function Agenda() {
   const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [editService, setEditService] = useState<any>(null);
-  const [editPayments, setEditPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [editPayments, setEditPayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
   const [editDiscount, setEditDiscount] = useState<string>('');
   const [editTip, setEditTip] = useState<string>('');
   const [isFetchingEditData, setIsFetchingEditData] = useState(false);
@@ -521,7 +521,7 @@ export default function Agenda() {
       setEditService(srv || null);
 
       if (app.status === 'completed') {
-        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ',') })) || [{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
+        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ','), payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd') })) || [{ method: 'pix', amount: app.total_price.replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]);
         setEditDiscount(app.discount?.replace('.', ',') || '0,00');
         setEditTip(app.tip?.replace('.', ',') || '0,00');
 
@@ -578,9 +578,10 @@ export default function Agenda() {
 
       const incomingPayments = (saleData.payments || []).map((p: any) => ({
         method: p.method,
-        amount: String(p.amount).replace('.', ',')
+        amount: String(p.amount).replace('.', ','),
+        payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd')
       }));
-      setSalePayments(incomingPayments.length ? incomingPayments : [{ method: 'pix', amount: '0,00' }]);
+      setSalePayments(incomingPayments.length ? incomingPayments : [{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
       setSaleDiscount(String(saleData.discount ?? '0').replace('.', ','));
 
       setIsEditingSale(true);
@@ -603,7 +604,7 @@ export default function Agenda() {
     setHasAssociatedSale(false);
     setCachedAssociatedSale(null);
     setSelectedProducts([]);
-    setSalePayments([{ method: 'pix', amount: '0,00' }]);
+    setSalePayments([{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
     setSaleDiscount('0,00');
     setIsEditingSale(false);
     setActiveAppointment(editingAppointment);
@@ -613,7 +614,7 @@ export default function Agenda() {
   };
 
   const completeWithPaymentsMutation = useMutation({
-    mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string }[]; discount: string; tip: string }) => {
+    mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string; payment_date?: string }[]; discount: string; tip: string }) => {
       return api.post(`/appointments/${id}/complete_with_payments/`, {
         payments: payments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
         discount: unmaskCurrency(discount) || '0',
@@ -705,7 +706,7 @@ export default function Agenda() {
       const res = await api.get<Appointment>(`/appointments/${appId}/`);
       const app = res.data;
       setActiveAppointment(app);
-      setPayments([{ method: 'pix', amount: app.total_price.replace('.', ',') }]);
+      setPayments([{ method: 'pix', amount: app.total_price.replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]);
       setCompleteDiscount(app.discount?.replace('.', ',') || '0,00');
       setCompleteTip(app.tip?.replace('.', ',') || '0,00');
     } catch (err) {
@@ -717,7 +718,7 @@ export default function Agenda() {
   };
 
   const addPaymentRow = () => {
-    setPayments([...payments, { method: 'cash', amount: '0,00' }]);
+    setPayments([...payments, { method: 'cash', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
   };
 
   const removePaymentRow = (index: number) => {
@@ -1317,6 +1318,14 @@ export default function Agenda() {
                         </Select>
                       </div>
                       <div className="w-32 relative">
+                        <Input
+                          type="date"
+                          className="bg-background border-border/50 h-11 px-2 text-xs"
+                          value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                          onChange={(e) => updatePayment(index, 'payment_date', e.target.value)}
+                        />
+                      </div>
+                      <div className="w-32 relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                         <Input
                           type="text"
@@ -1495,6 +1504,18 @@ export default function Agenda() {
                               </SelectContent>
                             </Select>
                           </div>
+                          <div className="w-32 relative">
+                            <Input
+                              type="date"
+                              className="bg-background border-border/50 h-10 px-2 text-xs"
+                              value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                              onChange={(e) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].payment_date = e.target.value;
+                                setEditPayments(newPayments);
+                              }}
+                            />
+                          </div>
                           <div className="w-28 relative">
                             <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                             <Input
@@ -1524,7 +1545,7 @@ export default function Agenda() {
                         variant="outline"
                         size="sm"
                         className="w-full gap-2 border-dashed h-10 text-xs"
-                        onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0' }])}
+                        onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0', payment_date: format(new Date(), 'yyyy-MM-dd') }])}
                       >
                         <Plus className="w-3 h-3" /> Adicionar Pagamento
                       </Button>
@@ -1632,7 +1653,7 @@ export default function Agenda() {
               className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20"
               onClick={() => {
                 setShowSaleQuestion(false);
-                setSalePayments([{ method: 'pix', amount: '0,00' }]);
+                setSalePayments([{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
                 setSelectedProducts([]);
                 setShowProductSaleModal(true);
               }}
@@ -1829,6 +1850,18 @@ export default function Agenda() {
                       </Select>
                     </div>
                     <div className="w-32 relative">
+                      <Input
+                        type="date"
+                        className="bg-background border-border/50 h-11 px-2 text-xs rounded-xl"
+                        value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                        onChange={(e) => {
+                          const newP = [...salePayments];
+                          newP[index].payment_date = e.target.value;
+                          setSalePayments(newP);
+                        }}
+                      />
+                    </div>
+                    <div className="w-32 relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <Input
                         type="text"
@@ -1860,7 +1893,7 @@ export default function Agenda() {
                   className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50"
                   onClick={() => {
                     const remaining = totalProducts - totalSalePaid;
-                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2).replace('.', ',') : '0,00' }]);
+                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2).replace('.', ',') : '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
                   }}
                 >
                   <Plus className="w-3.5 h-3.5" /> Adicionar Outra Forma
