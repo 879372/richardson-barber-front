@@ -32,6 +32,13 @@ type FinancialSummary = {
   expenses: any[];
 };
 
+type ClientSpending = {
+  client_id: number | null;
+  client_name: string;
+  phone: string;
+  total_spent: number;
+};
+
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -120,6 +127,14 @@ export default function Financeiro() {
     queryKey: ['debts'],
     queryFn: async () => {
       const res = await api.get<any[]>('/debts/');
+      return res.data;
+    },
+  });
+
+  const { data: clientSpending, isLoading: isClientSpendingLoading } = useQuery({
+    queryKey: ['client-spending', startDate, endDate],
+    queryFn: async () => {
+      const res = await api.get<ClientSpending[]>(`/client-spending/?start_date=${startDate}&end_date=${endDate}`);
       return res.data;
     },
   });
@@ -387,6 +402,48 @@ export default function Financeiro() {
                   )}
                 </div>
               ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6">
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm print:shadow-none print:border-gray-200">
+          <CardHeader>
+            <CardTitle className="text-xl font-medium">Gastos por Cliente</CardTitle>
+            <CardDescription>Total gasto por cada cliente no período selecionado</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isClientSpendingLoading ? (
+              <div className="text-center py-10 italic">Carregando...</div>
+            ) : !clientSpending || clientSpending.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground">Nenhum gasto registrado neste período.</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="font-medium">Cliente</TableHead>
+                    <TableHead className="font-medium">Telefone</TableHead>
+                    <TableHead className="text-right font-bold">Total Gasto</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clientSpending.map((client, idx) => (
+                    <TableRow key={client.client_id || `avulso-${idx}`}>
+                      <TableCell className="font-medium text-sm">
+                        {client.client_name}
+                        {client.client_id === null && <span className="ml-2 text-[10px] bg-muted px-2 py-0.5 rounded text-muted-foreground uppercase">Avulso</span>}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {client.phone || '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold text-green-500 print:text-black">
+                        {formatCurrency(client.total_spent)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
