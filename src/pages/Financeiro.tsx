@@ -421,57 +421,53 @@ export default function Financeiro() {
             ) : !clientSpending || clientSpending.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">Nenhum gasto registrado neste período.</div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="font-medium">Cliente</TableHead>
-                    <TableHead className="font-medium">Detalhamento</TableHead>
-                    <TableHead className="text-right font-bold">Total Gasto</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {clientSpending.map((client, idx) => {
-                    return (
-                      <TableRow key={client.client_id || `avulso-${idx}`}>
-                        <TableCell className="font-medium">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold">
-                              {client.client_name}
-                              {client.client_id === null && <span className="ml-2 text-[10px] bg-muted px-2 py-0.5 rounded text-muted-foreground uppercase">Avulso</span>}
+              <div className="space-y-3">
+                {clientSpending.map((client, idx) => {
+                  return (
+                    <div key={client.client_id || `avulso-${idx}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border/50 bg-card/50 hover:bg-muted/50 transition-colors">
+                      <div className="flex justify-between items-start sm:w-1/3">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold flex items-center">
+                            {client.client_name}
+                            {client.client_id === null && <span className="ml-2 text-[10px] bg-muted px-2 py-0.5 rounded text-muted-foreground uppercase">Avulso</span>}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-0.5">
+                            {client.transactions} {client.transactions === 1 ? 'Lançamento' : 'Lançamentos'}
+                          </span>
+                        </div>
+                        {/* Exibe o total no topo à direita apenas no mobile */}
+                        <div className="font-bold text-green-500 print:text-black text-base text-right sm:hidden">
+                          {formatCurrency(client.total_spent)}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 w-full sm:flex-1 sm:max-w-md">
+                        <div className="flex gap-3 text-xs">
+                          {client.services_spent > 0 && (
+                            <span className="flex items-center gap-1 text-blue-500 font-medium">
+                              <Scissors className="w-3 h-3" /> {formatCurrency(client.services_spent)}
                             </span>
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{client.transactions} {client.transactions === 1 ? 'Lançamento' : 'Lançamentos'}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1 w-full max-w-xs">
-                            <div className="flex gap-3 text-xs">
-                              {client.services_spent > 0 && (
-                                <span className="flex items-center gap-1 text-blue-500 font-medium">
-                                  <Scissors className="w-3 h-3" /> {formatCurrency(client.services_spent)}
-                                </span>
-                              )}
-                              {client.products_spent > 0 && (
-                                <span className="flex items-center gap-1 text-amber-500 font-medium">
-                                  <Package className="w-3 h-3" /> {formatCurrency(client.products_spent)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden flex">
-                              {client.services_spent > 0 && <div className="h-full bg-blue-500" style={{ width: `${(client.services_spent / client.total_spent) * 100}%` }} />}
-                              {client.products_spent > 0 && <div className="h-full bg-amber-500" style={{ width: `${(client.products_spent / client.total_spent) * 100}%` }} />}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="font-bold text-green-500 print:text-black text-base">
-                            {formatCurrency(client.total_spent)}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          )}
+                          {client.products_spent > 0 && (
+                            <span className="flex items-center gap-1 text-amber-500 font-medium">
+                              <Package className="w-3 h-3" /> {formatCurrency(client.products_spent)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden flex">
+                          {client.services_spent > 0 && <div className="h-full bg-blue-500" style={{ width: `${(client.services_spent / client.total_spent) * 100}%` }} />}
+                          {client.products_spent > 0 && <div className="h-full bg-amber-500" style={{ width: `${(client.products_spent / client.total_spent) * 100}%` }} />}
+                        </div>
+                      </div>
+
+                      {/* Exibe o total à direita apenas no desktop */}
+                      <div className="hidden sm:block font-bold text-green-500 print:text-black text-base text-right sm:w-1/4">
+                        {formatCurrency(client.total_spent)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>
