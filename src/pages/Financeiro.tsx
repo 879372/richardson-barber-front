@@ -89,14 +89,13 @@ export default function Financeiro() {
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
   
-  // Debtors states
   const [isDebtorsOpen, setIsDebtorsOpen] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<any | null>(null);
   const [isPayOpen, setIsPayOpen] = useState(false);
-  const [payPayments, setPayPayments] = useState<{ method: string; amount: string }[]>([]);
+  const [payPayments, setPayPayments] = useState<{ method: string; amount: string; payment_date: string }[]>([]);
 
   const addPayPaymentRow = () => {
-    setPayPayments([...payPayments, { method: 'cash', amount: '0,00' }]);
+    setPayPayments([...payPayments, { method: 'cash', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
   };
 
   const removePayPaymentRow = (index: number) => {
@@ -168,7 +167,8 @@ export default function Financeiro() {
         id: selectedDebt.id,
         payments: payPayments.map(p => ({
           method: p.method,
-          amount: unmaskCurrency(p.amount)
+          amount: unmaskCurrency(p.amount),
+          payment_date: p.payment_date
         }))
       });
     },
@@ -196,6 +196,25 @@ export default function Financeiro() {
   };
 
   const totalPendingDebts = debts?.reduce((acc, d) => acc + d.remaining_debt, 0) || 0;
+
+  const groupedDebts = Object.values(
+    (debts || []).reduce((acc: any, debt: any) => {
+      const key = debt.client_id || `avulso-${debt.client_name}`;
+      if (!acc[key]) {
+        acc[key] = {
+          client_id: debt.client_id,
+          client_name: debt.client_name,
+          total_debt: 0,
+          items: []
+        };
+      }
+      acc[key].total_debt += debt.remaining_debt;
+      acc[key].items.push(debt);
+      return acc;
+    }, {})
+  ).sort((a: any, b: any) => b.total_debt - a.total_debt);
+
+  const [expandedClient, setExpandedClient] = useState<string | null>(null);
 
   const stats = [
     {
@@ -556,43 +575,81 @@ export default function Financeiro() {
           <div className="py-4">
             {isDebtsLoading ? (
               <div className="text-center py-10 italic">Carregando devedores...</div>
-            ) : !debts || debts.length === 0 ? (
+            ) : groupedDebts.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground italic">Nenhum cliente devedor pendente.</div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Pago</TableHead>
-                    <TableHead className="text-right font-bold text-amber-500">Pendente</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {debts.map((debt: any) => (
-                    <TableRow 
-                      key={`${debt.type}-${debt.id}`} 
-                      className="cursor-pointer hover:bg-primary/5 transition-colors"
-                      onClick={() => {
-                        setSelectedDebt(debt);
-                        setPayPayments([{ method: 'pix', amount: maskCurrency((debt.remaining_debt * 100).toFixed(0)) }]);
-                        setIsPayOpen(true);
-                      }}
-                    >
-                      <TableCell className="font-bold">{debt.client_name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {format(new Date(debt.date), 'dd/MM/yy HH:mm')}
-                      </TableCell>
-                      <TableCell className="text-xs">{debt.description}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(debt.total_price)}</TableCell>
-                      <TableCell className="text-right text-green-500">{formatCurrency(debt.total_paid)}</TableCell>
-                      <TableCell className="text-right font-black text-amber-500">{formatCurrency(debt.remaining_debt)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="space-y-4">
+                {groupedDebts.map((group: any) => {
+                  const isExpanded = expandedClient === group.client_id;
+                  return (
+                    <div key={group.client_id || group.client_name} className="border border-border/50 rounded-xl overflow-hidden bg-card/50">
+                      <div 
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-primary/5 transition-colors"
+                        onClick={() => setExpandedClient(isExpanded ? null : group.client_id)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500">
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-base">{group.client_name}</h3>
+                            <p className="text-xs text-muted-foreground">{group.items.length} {group.items.length === 1 ? 'conta' : 'contas'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Total Devendo</p>
+                            <p className="font-black text-amber-500 text-lg">{formatCurrency(group.total_debt)}</p>
+                          </div>
+                          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="bg-muted/30 border-t border-border/50 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Data</TableHead>
+                                <TableHead>Descrição</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                                <TableHead className="text-right">Pago</TableHead>
+                                <TableHead className="text-right font-bold text-amber-500">Pendente</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {group.items.map((debt: any) => (
+                                <TableRow 
+                                  key={`${debt.type}-${debt.id}`} 
+                                  className="cursor-pointer hover:bg-primary/10 transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedDebt(debt);
+                                    setPayPayments([{ 
+                                      method: 'pix', 
+                                      amount: maskCurrency((debt.remaining_debt * 100).toFixed(0)),
+                                      payment_date: format(new Date(), 'yyyy-MM-dd')
+                                    }]);
+                                    setIsPayOpen(true);
+                                  }}
+                                >
+                                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                    {format(new Date(debt.date), 'dd/MM/yy HH:mm')}
+                                  </TableCell>
+                                  <TableCell className="text-xs">{debt.description}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(debt.total_price)}</TableCell>
+                                  <TableCell className="text-right text-green-500">{formatCurrency(debt.total_paid)}</TableCell>
+                                  <TableCell className="text-right font-bold text-amber-500">{formatCurrency(debt.remaining_debt)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
           <DialogFooter>
@@ -651,7 +708,15 @@ export default function Financeiro() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="w-36 relative">
+                    <div className="flex-1">
+                      <Input
+                        type="date"
+                        className="bg-background border-border/50 h-11"
+                        value={payment.payment_date}
+                        onChange={(e) => updatePayPayment(index, 'payment_date', e.target.value)}
+                      />
+                    </div>
+                    <div className="w-32 relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                       <Input
                         type="text"
