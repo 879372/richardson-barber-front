@@ -185,6 +185,7 @@ export default function Agenda() {
   const [walkInService, setWalkInService] = useState<any>(null);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
   const [walkInTime, setWalkInTime] = useState<string>('');
+  const [pendingWaitlistEntryId, setPendingWaitlistEntryId] = useState<number | null>(null);
 
   // Timeline State
   const [timelineBarberId, setTimelineBarberId] = useState<string | null>(null);
@@ -484,8 +485,8 @@ export default function Agenda() {
     setAgendaView('timeline');
     setShowWalkInModal(true);
 
-    // Mark as scheduled in background
-    updateWaitlistMutation.mutate({ id: entry.id, status: 'scheduled' });
+    // Store ID to mark as scheduled later when user saves
+    setPendingWaitlistEntryId(entry.id);
   };
 
 
@@ -774,6 +775,11 @@ export default function Agenda() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       setShowWalkInModal(false);
+
+      if (pendingWaitlistEntryId) {
+        updateWaitlistMutation.mutate({ id: pendingWaitlistEntryId, status: 'scheduled' });
+        setPendingWaitlistEntryId(null);
+      }
 
       setWalkInClient(null);
       setWalkInService(null);
@@ -2656,7 +2662,15 @@ export default function Agenda() {
       </Dialog>
 
       {/* Walk-In Modal */}
-      <Dialog open={showWalkInModal} onOpenChange={setShowWalkInModal}>
+      <Dialog 
+        open={showWalkInModal} 
+        onOpenChange={(open) => {
+          setShowWalkInModal(open);
+          if (!open && pendingWaitlistEntryId) {
+            setPendingWaitlistEntryId(null);
+          }
+        }}
+      >
         <DialogContent className="bg-card border-border sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Registro de Atendimento Avulso</DialogTitle>
