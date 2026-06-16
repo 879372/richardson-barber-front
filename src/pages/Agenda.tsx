@@ -468,8 +468,12 @@ export default function Agenda() {
 
   const handleConvertToAppointment = (entry: WaitlistEntry) => {
     // Pre-fill the walk-in modal with waitlist data
-    const client = clients?.find((c: any) => c.id === entry.client);
-    if (client) setWalkInClient(client);
+    const client = clients?.find((c: any) => c.id === entry.client) || {
+      id: entry.client,
+      first_name: entry.client_name,
+      phone: entry.client_phone
+    };
+    setWalkInClient(client);
 
     const service = services?.find((s: any) => s.id === entry.service);
     if (service) setWalkInService(service);
