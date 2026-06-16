@@ -466,24 +466,23 @@ export default function Agenda() {
   });
 
   const handleConvertToAppointment = (entry: WaitlistEntry) => {
-    // Pre-fill the new appointment modal with waitlist data
+    // Pre-fill the walk-in modal with waitlist data
     const client = clients?.find((c: any) => c.id === entry.client);
-    if (client) setNewAppClient(client);
+    if (client) setWalkInClient(client);
 
     const service = services?.find((s: any) => s.id === entry.service);
-    if (service) setNewAppService(service);
+    if (service) setWalkInService(service);
 
     const barber = barbers?.find((b: any) => b.id === entry.barber);
-    if (barber) setNewAppBarber(barber);
+    if (barber) setWalkInBarber(barber);
 
     // Navigate calendar to preferred date
     const prefDate = new Date(entry.preferred_date + 'T12:00:00');
     setSelectedDate(prefDate);
 
-    setNewAppNotes(entry.notes || '');
-    setNewAppTime('');
+    setWalkInTime('');
     setAgendaView('timeline');
-    setShowNewAppointmentModal(true);
+    setShowWalkInModal(true);
 
     // Mark as scheduled in background
     updateWaitlistMutation.mutate({ id: entry.id, status: 'scheduled' });
