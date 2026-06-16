@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap } from 'lucide-react';
+import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap, Bell, Phone, CheckCheck, Calendar as CalendarIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,6 +81,24 @@ type TimeBlock = {
   reason: string;
   barber: number | any;
   barber_name?: string;
+};
+
+type WaitlistEntry = {
+  id: number;
+  client: number;
+  client_name: string;
+  client_phone: string;
+  barber: number | null;
+  barber_name: string;
+  service: number | null;
+  service_name: string;
+  preferred_date: string;
+  preferred_period: string;
+  preferred_period_display: string;
+  notes: string;
+  status: string;
+  status_display: string;
+  created_at: string;
 };
 
 const statusMap: Record<string, { label: string; color: string }> = {
@@ -220,6 +238,10 @@ export default function Agenda() {
   const [showRemoveBlockConfirm, setShowRemoveBlockConfirm] = useState(false);
   const [blockToRemove, setBlockToRemove] = useState<number | null>(null);
 
+  // Agenda View Tab
+  const [agendaView, setAgendaView] = useState<'timeline' | 'waitlist'>('timeline');
+  const [waitlistStatusFilter, setWaitlistStatusFilter] = useState<string>('waiting');
+
   const queryClient = useQueryClient();
 
   const { data: customMethods } = useQuery({
@@ -277,6 +299,20 @@ export default function Agenda() {
     queryKey: ['working-hours'],
     queryFn: async () => (await api.get<any[]>('/working-hours/')).data,
   });
+
+  const { data: waitlistEntries, isLoading: isLoadingWaitlist } = useQuery({
+    queryKey: ['waitlist', waitlistStatusFilter, me?.id, me?.role],
+    queryFn: async () => {
+      let url = '/waitlist/?ordering=-created_at';
+      if (waitlistStatusFilter !== 'all') url += `&status=${waitlistStatusFilter}`;
+      if (me?.role === 'barber') url += `&barber=${me.id}`;
+      const res = await api.get<WaitlistEntry[]>(url);
+      return res.data;
+    },
+    enabled: !!me,
+  });
+
+  const waitingCount = waitlistEntries?.filter(e => e.status === 'waiting').length || 0;
 
   const { data: timeBlocks, isLoading: isLoadingBlocks } = useQuery({
     queryKey: ['time-blocks', format(selectedDate, 'yyyy-MM-dd')],
@@ -409,6 +445,50 @@ export default function Agenda() {
     },
     onError: () => toast.error('Erro ao criar agendamento(s). Verifique a disponibilidade.'),
   });
+
+  const updateWaitlistMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) =>
+      api.patch(`/waitlist/${id}/`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+      toast.success('Fila atualizada com sucesso!');
+    },
+    onError: () => toast.error('Erro ao atualizar fila.'),
+  });
+
+  const deleteWaitlistMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/waitlist/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+      toast.success('Entrada removida da fila.');
+    },
+    onError: () => toast.error('Erro ao remover da fila.'),
+  });
+
+  const handleConvertToAppointment = (entry: WaitlistEntry) => {
+    // Pre-fill the new appointment modal with waitlist data
+    const client = clients?.find((c: any) => c.id === entry.client);
+    if (client) setNewAppClient(client);
+
+    const service = services?.find((s: any) => s.id === entry.service);
+    if (service) setNewAppService(service);
+
+    const barber = barbers?.find((b: any) => b.id === entry.barber);
+    if (barber) setNewAppBarber(barber);
+
+    // Navigate calendar to preferred date
+    const prefDate = new Date(entry.preferred_date + 'T12:00:00');
+    setSelectedDate(prefDate);
+
+    setNewAppNotes(entry.notes || '');
+    setNewAppTime('');
+    setAgendaView('timeline');
+    setShowNewAppointmentModal(true);
+
+    // Mark as scheduled in background
+    updateWaitlistMutation.mutate({ id: entry.id, status: 'scheduled' });
+  };
+
 
   const createClientMutation = useMutation({
     mutationFn: async (data: typeof quickClient) => {
@@ -941,7 +1021,202 @@ export default function Agenda() {
           </div>
         </div>
 
+        {/* View Tabs */}
+        <div className="flex gap-2 border-b border-border/50 pb-0">
+          <button
+            onClick={() => setAgendaView('timeline')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              agendaView === 'timeline'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <CalendarIcon className="w-4 h-4" />
+            Agenda do Dia
+          </button>
+          <button
+            onClick={() => setAgendaView('waitlist')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              agendaView === 'waitlist'
+                ? 'border-amber-500 text-amber-500'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            Fila de Espera
+            {waitingCount > 0 && (
+              <span className="ml-1 bg-amber-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {waitingCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Waitlist View */}
+        {agendaView === 'waitlist' && (
+          <div className="space-y-4 animate-in fade-in duration-300">
+            {/* Filters */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['all', 'waiting', 'contacted', 'scheduled', 'cancelled'] as const).map((s) => {
+                const labels: Record<string, string> = {
+                  all: 'Todos',
+                  waiting: 'Aguardando',
+                  contacted: 'Contactado',
+                  scheduled: 'Agendado',
+                  cancelled: 'Cancelado',
+                };
+                const colors: Record<string, string> = {
+                  all: 'bg-muted text-foreground',
+                  waiting: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+                  contacted: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                  scheduled: 'bg-green-500/10 text-green-600 border-green-500/20',
+                  cancelled: 'bg-red-500/10 text-red-600 border-red-500/20',
+                };
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setWaitlistStatusFilter(s)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      waitlistStatusFilter === s
+                        ? colors[s] + ' border-current'
+                        : 'border-border/50 text-muted-foreground hover:border-border'
+                    }`}
+                  >
+                    {labels[s]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {isLoadingWaitlist ? (
+              <div className="flex items-center justify-center py-16 text-muted-foreground">
+                <Loader2 className="w-6 h-6 animate-spin mr-2" /> Carregando fila...
+              </div>
+            ) : !waitlistEntries || waitlistEntries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground text-center">
+                <Bell className="w-12 h-12 mb-4 opacity-20" />
+                <p className="font-medium">Nenhuma entrada na fila</p>
+                <p className="text-sm mt-1">Quando clientes entrarem na fila de espera, aparecerão aqui.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {waitlistEntries.map((entry) => {
+                  const statusColors: Record<string, string> = {
+                    waiting:   'bg-amber-500/10 text-amber-600 border-amber-500/20',
+                    contacted: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                    scheduled: 'bg-green-500/10 text-green-600 border-green-500/20',
+                    cancelled: 'bg-red-500/10 text-red-600 border-red-500/20',
+                  };
+                  const periodEmoji: Record<string, string> = {
+                    morning: '🌅 Manhã',
+                    afternoon: '🌇 Tarde',
+                    any: '🕐 Qualquer',
+                  };
+                  const cleanPhone = entry.client_phone.replace(/\D/g, '');
+                  const waPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                  const waMsg = `Olá ${entry.client_name}! Tenho uma vaga disponível para ${entry.service_name}. Podemos agendar?`;
+
+                  return (
+                    <div key={entry.id} className="bg-card border border-border/50 rounded-2xl p-4 space-y-4 hover:border-amber-500/30 transition-all">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 flex-shrink-0">
+                            <span className="text-base font-bold text-amber-600">
+                              {entry.client_name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-sm">{entry.client_name}</p>
+                            <p className="text-xs text-muted-foreground">{entry.client_phone}</p>
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${statusColors[entry.status] || 'bg-muted text-muted-foreground border-border/50'}`}>
+                          {entry.status_display}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-muted/30 rounded-lg p-2.5">
+                          <p className="text-muted-foreground text-[10px] mb-0.5">Serviço</p>
+                          <p className="font-medium">{entry.service_name}</p>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-2.5">
+                          <p className="text-muted-foreground text-[10px] mb-0.5">Data Preferida</p>
+                          <p className="font-medium">{format(new Date(entry.preferred_date + 'T12:00:00'), 'dd/MM/yyyy')}</p>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-2.5">
+                          <p className="text-muted-foreground text-[10px] mb-0.5">Período</p>
+                          <p className="font-medium">{periodEmoji[entry.preferred_period] || entry.preferred_period_display}</p>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-2.5">
+                          <p className="text-muted-foreground text-[10px] mb-0.5">Na fila desde</p>
+                          <p className="font-medium">{format(new Date(entry.created_at), 'dd/MM HH:mm')}</p>
+                        </div>
+                      </div>
+
+                      {entry.notes && (
+                        <div className="bg-muted/20 rounded-lg px-3 py-2 text-xs text-muted-foreground italic">
+                          "{entry.notes}"
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="gap-1.5 bg-[#25D366] hover:bg-[#25D366]/90 text-white border-none h-8 text-xs flex-1"
+                          onClick={() => window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`, '_blank')}
+                        >
+                          <Bell className="w-3.5 h-3.5" /> WhatsApp
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 h-8 text-xs flex-1"
+                          onClick={() => window.open(`tel:${entry.client_phone}`)}
+                        >
+                          <Phone className="w-3.5 h-3.5" /> Ligar
+                        </Button>
+                        {entry.status === 'waiting' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 h-8 text-xs border-blue-500/30 text-blue-600 hover:bg-blue-500/10 flex-1"
+                            onClick={() => updateWaitlistMutation.mutate({ id: entry.id, status: 'contacted' })}
+                            disabled={updateWaitlistMutation.isPending}
+                          >
+                            <CheckCheck className="w-3.5 h-3.5" /> Contactado
+                          </Button>
+                        )}
+                        {entry.status !== 'scheduled' && entry.status !== 'cancelled' && (
+                          <Button
+                            size="sm"
+                            className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground border-none flex-1"
+                            onClick={() => handleConvertToAppointment(entry)}
+                          >
+                            <CalendarIcon className="w-3.5 h-3.5" /> Agendar
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => deleteWaitlistMutation.mutate(entry.id)}
+                          disabled={deleteWaitlistMutation.isPending}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Timeline View */}
+        {agendaView === 'timeline' && (
         <div className="flex-1 bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
           {/* Timeline Header */}
           <div className="p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-muted/10">
@@ -1223,6 +1498,7 @@ export default function Agenda() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Service Completion Modal */}

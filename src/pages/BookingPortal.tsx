@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Scissors, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight, Search, Loader2 } from 'lucide-react';
+import { Scissors, Clock, User as UserIcon, CheckCircle2, ChevronLeft, ChevronRight, Search, Loader2, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -70,6 +70,12 @@ export default function BookingPortal() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // Waitlist state
+  const [isWaitlistModalOpen, setIsWaitlistModalOpen] = useState(false);
+  const [isWaitlistSuccess, setIsWaitlistSuccess] = useState(false);
+  const [waitlistPeriod, setWaitlistPeriod] = useState<'morning' | 'afternoon' | 'any'>('any');
+  const [waitlistNotes, setWaitlistNotes] = useState('');
+
   // Queries
   const { data: services, isLoading: isLoadingServices } = useQuery({
     queryKey: ['services'],
@@ -132,6 +138,31 @@ export default function BookingPortal() {
     },
     onError: (error: any) => {
       const errorMessage = error.response?.data?.error || 'Erro ao realizar agendamento. Tente outro horário.';
+      toast.error(errorMessage);
+    }
+  });
+
+  const waitlistMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDate || !selectedService || !selectedBarber) return;
+      return publicApi.post('/waitlist/public_join/', {
+        name,
+        phone,
+        birth_date: dateToBackend(birthDate),
+        service_id: selectedService.id,
+        barber_id: selectedBarber.id,
+        preferred_date: format(selectedDate, 'yyyy-MM-dd'),
+        preferred_period: waitlistPeriod,
+        notes: waitlistNotes,
+      });
+    },
+    onSuccess: () => {
+      setIsWaitlistModalOpen(false);
+      setIsWaitlistSuccess(true);
+      toast.success('Você entrou na fila de espera!');
+    },
+    onError: (error: any) => {
+      const errorMessage = error.response?.data?.error || 'Erro ao entrar na fila. Tente novamente.';
       toast.error(errorMessage);
     }
   });
@@ -218,6 +249,44 @@ export default function BookingPortal() {
     const [year, month, day] = dateStr.split('-');
     return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
   };
+
+  if (isWaitlistSuccess) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-card p-8 rounded-2xl shadow-2xl border border-border/50 text-center space-y-6">
+          <div className="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto">
+            <Bell className="w-10 h-10 text-amber-500" />
+          </div>
+          <h2 className="text-2xl font-semibold">Você está na fila! 🎉</h2>
+          <p className="text-muted-foreground text-base">
+            Quando uma vaga surgir, o barbeiro entrará em contato pelo seu WhatsApp.
+          </p>
+          <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2">
+            <p><strong>Serviço:</strong> {selectedService?.name}</p>
+            <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
+            <p><strong>Data preferida:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''}</p>
+            <p><strong>Período:</strong> {waitlistPeriod === 'morning' ? 'Manhã' : waitlistPeriod === 'afternoon' ? 'Tarde' : 'Qualquer horário'}</p>
+          </div>
+          <div className="space-y-3">
+            <Button
+              className="w-full gap-2 bg-[#25D366] hover:bg-[#25D366]/90 border-none text-white"
+              onClick={() => {
+                const msg = `Olá! Me cadastrei na fila de espera para ${selectedService?.name} no dia ${format(selectedDate!, 'dd/MM')}.`;
+                const cleanPhone = selectedBarber?.phone.replace(/\D/g, '') || '';
+                const finalPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+              }}
+            >
+              Avisar pelo WhatsApp
+            </Button>
+            <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => window.location.reload()}>
+              Voltar ao Início
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
@@ -513,9 +582,29 @@ export default function BookingPortal() {
                     {isLoadingTimes ? (
                       <div className="text-center py-10 italic text-sm text-muted-foreground">Consultando agenda...</div>
                     ) : availableTimes?.length === 0 ? (
-                      <div className="text-center py-10 text-sm text-muted-foreground bg-primary/5 rounded-2xl border-2 border-dashed border-primary/10">
-                        Poxa! Nenhum horário disponível nesta data. 😕<br/>
-                        <span className="text-[10px] font-medium">Tente outro dia ou outro profissional.</span>
+                      <div className="space-y-4">
+                        <div className="text-center py-8 text-sm text-muted-foreground bg-primary/5 rounded-2xl border-2 border-dashed border-primary/10">
+                          Poxa! Nenhum horário disponível nesta data. 😕<br/>
+                          <span className="text-[10px] font-medium">Tente outro dia ou entre na fila de espera.</span>
+                        </div>
+                        <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                              <Bell className="w-5 h-5 text-amber-500" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Fila de Espera</p>
+                              <p className="text-[11px] text-muted-foreground">Caso surja uma vaga, o barbeiro entrará em contato.</p>
+                            </div>
+                          </div>
+                          <Button
+                            className="w-full bg-amber-500 hover:bg-amber-600 text-white border-none gap-2"
+                            onClick={() => setIsWaitlistModalOpen(true)}
+                          >
+                            <Bell className="w-4 h-4" />
+                            Entrar na Fila de Espera
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
@@ -573,6 +662,73 @@ export default function BookingPortal() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Waitlist Modal */}
+      <Dialog open={isWaitlistModalOpen} onOpenChange={setIsWaitlistModalOpen}>
+        <DialogContent className="sm:max-w-md bg-card border-border backdrop-blur-2xl p-6 sm:p-8">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
+                <Bell className="w-6 h-6 text-amber-500" />
+              </div>
+              <div>
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-semibold text-left">Entrar na Fila de Espera</DialogTitle>
+                </DialogHeader>
+                <p className="text-xs text-muted-foreground">O barbeiro avisará quando houver vaga</p>
+              </div>
+            </div>
+
+            <div className="bg-background rounded-xl p-4 border border-border/50 space-y-1.5 text-sm">
+              <p><strong>Serviço:</strong> {selectedService?.name}</p>
+              <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
+              <p><strong>Data preferida:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''}</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm text-muted-foreground">Período preferido</label>
+              <div className="grid grid-cols-3 gap-2">
+                {([['morning', '🌅 Manhã'], ['afternoon', '🌇 Tarde'], ['any', '🕐 Qualquer']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setWaitlistPeriod(val)}
+                    className={`py-3 px-2 rounded-xl border-2 text-xs font-medium transition-all ${
+                      waitlistPeriod === val
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-600'
+                        : 'border-border/50 hover:border-amber-500/40'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">Algum recado? (Opcional)</label>
+              <Textarea
+                placeholder="Ex: Prefiro de manhã cedo..."
+                value={waitlistNotes}
+                onChange={(e) => setWaitlistNotes(e.target.value)}
+                className="bg-background/50 border-border/50 min-h-[70px] rounded-xl focus:border-amber-500 resize-none text-sm"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Button
+                className="w-full h-12 bg-amber-500 hover:bg-amber-600 text-white border-none font-bold"
+                onClick={() => waitlistMutation.mutate()}
+                disabled={waitlistMutation.isPending}
+              >
+                {waitlistMutation.isPending ? 'Entrando na fila...' : 'Confirmar Entrada na Fila'}
+              </Button>
+              <Button variant="ghost" className="w-full text-muted-foreground" onClick={() => setIsWaitlistModalOpen(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Modal */}
       <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
