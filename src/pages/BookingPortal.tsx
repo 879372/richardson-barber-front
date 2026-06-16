@@ -607,23 +607,37 @@ export default function BookingPortal() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                        {availableTimes?.map((time) => {
-                          const [hours, minutes] = time.split(':').map(Number);
-                          const endDateTime = new Date();
-                          endDateTime.setHours(hours, minutes + (selectedService?.duration_minutes || 30), 0, 0);
-                          const endTimeStr = format(endDateTime, 'HH:mm');
-                          return (
-                            <div
-                              key={time}
-                              onClick={() => setSelectedTime(time)}
-                              className={`p-3 text-center rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center justify-center ${selectedTime === time ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-primary/20' : 'border-border/50 bg-background/50 hover:border-primary/50'}`}
-                            >
-                              <span className="font-semibold text-base sm:text-lg">{time}</span>
-                              <span className="text-[9px] opacity-80 leading-none">até {endTimeStr}</span>
-                            </div>
-                          );
-                        })}
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                          {availableTimes?.map((time) => {
+                            const [hours, minutes] = time.split(':').map(Number);
+                            const endDateTime = new Date();
+                            endDateTime.setHours(hours, minutes + (selectedService?.duration_minutes || 30), 0, 0);
+                            const endTimeStr = format(endDateTime, 'HH:mm');
+                            return (
+                              <div
+                                key={time}
+                                onClick={() => setSelectedTime(time)}
+                                className={`p-3 text-center rounded-xl border-2 cursor-pointer transition-all flex flex-col items-center justify-center ${selectedTime === time ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-primary/20' : 'border-border/50 bg-background/50 hover:border-primary/50'}`}
+                              >
+                                <span className="font-semibold text-base sm:text-lg">{time}</span>
+                                <span className="text-[9px] opacity-80 leading-none">até {endTimeStr}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex flex-col items-center gap-2 pt-4 border-t border-border/50">
+                          <p className="text-xs text-muted-foreground">Não encontrou o horário que queria?</p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-amber-500 border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-600 gap-2 h-8 text-xs"
+                            onClick={() => setIsWaitlistModalOpen(true)}
+                          >
+                            <Bell className="w-3.5 h-3.5" />
+                            Entrar na Fila de Espera
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
