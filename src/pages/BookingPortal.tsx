@@ -36,7 +36,7 @@ export default function BookingPortal() {
   const [searchQuery, setSearchQuery] = useState('');
   
   // Booking State
-  const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [selectedTime, setSelectedTime] = useState<string>('');
@@ -94,14 +94,15 @@ export default function BookingPortal() {
   });
 
   const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
-    queryKey: ['available-times', selectedBarber?.id, selectedDate, selectedService?.id],
+    queryKey: ['available-times', selectedBarber?.id, selectedDate, selectedServices.map(s => s.id).join(',')],
     queryFn: async () => {
-      if (!selectedBarber || !selectedDate || !selectedService) return [];
+      if (!selectedBarber || !selectedDate || selectedServices.length === 0) return [];
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      const res = await publicApi.get<string[]>(`/users/${selectedBarber.id}/available_times/?date=${dateStr}&service_id=${selectedService.id}`);
+      const servicesIds = selectedServices.map(s => s.id).join(',');
+      const res = await publicApi.get<string[]>(`/users/${selectedBarber.id}/available_times/?date=${dateStr}&services_ids=${servicesIds}`);
       return res.data;
     },
-    enabled: !!selectedBarber && !!selectedDate && !!selectedService,
+    enabled: !!selectedBarber && !!selectedDate && selectedServices.length > 0,
   });
 
   const { data: barberWorkingHours } = useQuery({
@@ -116,7 +117,7 @@ export default function BookingPortal() {
 
   const bookMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDate || !selectedTime || !selectedService || !selectedBarber) return;
+      if (!selectedDate || !selectedTime || selectedServices.length === 0 || !selectedBarber) return;
       
       const [hours, minutes] = selectedTime.split(':');
       const dateTime = new Date(selectedDate);
@@ -126,7 +127,7 @@ export default function BookingPortal() {
         name,
         phone,
         birth_date: dateToBackend(birthDate),
-        service_id: selectedService.id,
+        services_ids: selectedServices.map(s => s.id),
         barber_id: selectedBarber.id,
         date_time: dateTime.toISOString(),
         notes: notes
@@ -144,12 +145,12 @@ export default function BookingPortal() {
 
   const waitlistMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDate || !selectedService || !selectedBarber) return;
+      if (!selectedDate || selectedServices.length === 0 || !selectedBarber) return;
       return publicApi.post('/waitlist/public_join/', {
         name,
         phone,
         birth_date: dateToBackend(birthDate),
-        service_id: selectedService.id,
+        services_ids: selectedServices.map(s => s.id),
         barber_id: selectedBarber.id,
         preferred_date: format(selectedDate, 'yyyy-MM-dd'),
         preferred_period: waitlistPeriod,
@@ -217,6 +218,13 @@ export default function BookingPortal() {
       return;
     }
     
+    if (step === 2) {
+      if (selectedServices.length === 0) {
+        toast.error('Selecione pelo menos um serviço.');
+        return;
+      }
+    }
+    
     if (step < 4) setStep(step + 1);
     else setIsConfirmModalOpen(true);
   };
@@ -262,7 +270,7 @@ export default function BookingPortal() {
             Quando uma vaga surgir, o barbeiro entrará em contato pelo seu WhatsApp.
           </p>
           <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2">
-            <p><strong>Serviço:</strong> {selectedService?.name}</p>
+            <p><strong>Serviço:</strong> {selectedServices.map(s => s.name).join(', ')}</p>
             <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
             <p><strong>Data preferida:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''}</p>
             <p><strong>Período:</strong> {waitlistPeriod === 'morning' ? 'Manhã' : waitlistPeriod === 'afternoon' ? 'Tarde' : 'Qualquer horário'}</p>
@@ -271,7 +279,7 @@ export default function BookingPortal() {
             <Button
               className="w-full gap-2 bg-[#25D366] hover:bg-[#25D366]/90 border-none text-white"
               onClick={() => {
-                const msg = `Olá! Me cadastrei na fila de espera para ${selectedService?.name} no dia ${format(selectedDate!, 'dd/MM')}.`;
+                const msg = `Olá! Me cadastrei na fila de espera para ${selectedServices.map(s => s.name).join(', ')} no dia ${format(selectedDate!, 'dd/MM')}.`;
                 const cleanPhone = selectedBarber?.phone.replace(/\D/g, '') || '';
                 const finalPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
                 window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -300,7 +308,7 @@ export default function BookingPortal() {
             Seu horário foi confirmado com sucesso. Te esperamos na barbearia!
           </p>
           <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2">
-            <p><strong>Serviço:</strong> {selectedService?.name}</p>
+            <p><strong>Serviço:</strong> {selectedServices.map(s => s.name).join(', ')}</p>
             <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
             <p><strong>Data:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''} às {selectedTime}</p>
           </div>
@@ -308,7 +316,7 @@ export default function BookingPortal() {
             <Button 
               className="w-full gap-2 bg-[#25D366] hover:bg-[#25D366]/90 border-none text-white"
               onClick={() => {
-                const msg = `Olá! Acabei de agendar um(a) ${selectedService?.name} para o dia ${format(selectedDate!, "dd/MM")} às ${selectedTime}.`;
+                const msg = `Olá! Acabei de agendar ${selectedServices.map(s => s.name).join(', ')} para o dia ${format(selectedDate!, "dd/MM")} às ${selectedTime}.`;
                 const cleanPhone = selectedBarber?.phone.replace(/\D/g, '') || '';
                 const finalPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
                 window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -482,35 +490,55 @@ export default function BookingPortal() {
                 {isLoadingServices ? (
                   <div className="text-center py-10 text-muted-foreground italic">Carregando serviços...</div>
                 ) : (
-                  <div className="grid gap-4">
-                    {services?.filter(svc => svc.name.toLowerCase().includes(searchQuery.toLowerCase()) || svc.description?.toLowerCase().includes(searchQuery.toLowerCase())).map((svc) => (
-                      <div 
-                        key={svc.id}
-                        onClick={() => setSelectedService(svc)}
-                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all duration-200 flex flex-col gap-1 relative overflow-hidden group ${selectedService?.id === svc.id ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-primary/50 hover:bg-accent/5'}`}
-                      >
-                        {selectedService?.id === svc.id && <div className="absolute top-0 right-0 p-2"><CheckCircle2 className="w-4 h-4 text-primary" /></div>}
-                        <h3 className="font-medium text-base sm:text-lg leading-tight">{svc.name}</h3>
-                        {svc.description && (
-                          <p className="text-xs text-muted-foreground line-clamp-1">{svc.description}</p>
-                        )}
-                        <div className="flex justify-between items-end mt-2">
-                          <span className="text-[10px] text-primary flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {svc.duration_minutes} min
-                          </span>
-                          <span className="font-semibold text-base text-foreground">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(svc.price))}
-                          </span>
+                  <>
+                    <div className="grid gap-4 pb-20">
+                      {services?.filter(svc => svc.name.toLowerCase().includes(searchQuery.toLowerCase()) || svc.description?.toLowerCase().includes(searchQuery.toLowerCase())).map((svc) => {
+                        const isSelected = selectedServices.some(s => s.id === svc.id);
+                        return (
+                          <div 
+                            key={svc.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedServices(selectedServices.filter(s => s.id !== svc.id));
+                              } else {
+                                setSelectedServices([...selectedServices, svc]);
+                              }
+                            }}
+                            className={`p-4 rounded-2xl border-2 cursor-pointer transition-all duration-200 flex flex-col gap-1 relative overflow-hidden group ${isSelected ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-primary/50 hover:bg-accent/5'}`}
+                          >
+                            {isSelected && <div className="absolute top-0 right-0 p-2"><CheckCircle2 className="w-4 h-4 text-primary" /></div>}
+                            <h3 className="font-medium text-base sm:text-lg leading-tight">{svc.name}</h3>
+                            {svc.description && (
+                              <p className="text-xs text-muted-foreground line-clamp-1">{svc.description}</p>
+                            )}
+                            <div className="flex justify-between items-end mt-2">
+                              <span className="text-[10px] text-primary flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> {svc.duration_minutes} min
+                              </span>
+                              <span className="font-semibold text-base text-foreground">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(svc.price))}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {selectedServices.length > 0 && (
+                      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border flex justify-between items-center z-10 sm:hidden pb-safe">
+                        <div>
+                          <p className="text-sm font-bold text-foreground">{selectedServices.length} {selectedServices.length === 1 ? 'serviço selecionado' : 'serviços selecionados'}</p>
+                          <p className="text-xs text-muted-foreground">Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedServices.reduce((acc, curr) => acc + Number(curr.price), 0))} • {selectedServices.reduce((acc, curr) => acc + curr.duration_minutes, 0)} min</p>
                         </div>
+                        <Button onClick={() => setStep(3)} className="h-10 px-6 font-semibold shadow-lg">Continuar</Button>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
             {/* Step 3: Barber */}
-            {step === 3 && (step === 3 && (
+            {step === 3 && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
                 <h2 className="text-2xl font-semibold mb-6">Escolha o Profissional</h2>
                 {isLoadingBarbers ? (
@@ -536,7 +564,7 @@ export default function BookingPortal() {
                   </div>
                 )}
               </div>
-            ))}
+            )}
 
             {/* Step 4: Date and Time */}
             {step === 4 && (
@@ -612,7 +640,7 @@ export default function BookingPortal() {
                           {availableTimes?.map((time) => {
                             const [hours, minutes] = time.split(':').map(Number);
                             const endDateTime = new Date();
-                            endDateTime.setHours(hours, minutes + (selectedService?.duration_minutes || 30), 0, 0);
+                            endDateTime.setHours(hours, minutes + (selectedServices.reduce((a, b) => a + b.duration_minutes, 0) || 30), 0, 0);
                             const endTimeStr = format(endDateTime, 'HH:mm');
                             return (
                               <div
@@ -660,7 +688,7 @@ export default function BookingPortal() {
                 onClick={handleNext}
                 disabled={
                   (step === 1 && (!phone || (isPhoneChecked && !phoneExists && !name))) ||
-                  (step === 2 && !selectedService) ||
+                  (step === 2 && selectedServices.length === 0) ||
                   (step === 3 && !selectedBarber) ||
                   (step === 4 && (!selectedDate || !selectedTime)) ||
                   bookMutation.isPending || isCheckingPhone
@@ -694,7 +722,7 @@ export default function BookingPortal() {
             </div>
 
             <div className="bg-background rounded-xl p-4 border border-border/50 space-y-1.5 text-sm">
-              <p><strong>Serviço:</strong> {selectedService?.name}</p>
+              <p><strong>Serviço:</strong> {selectedServices.map(s => s.name).join(', ')}</p>
               <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
               <p><strong>Data preferida:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : ''}</p>
             </div>
@@ -760,14 +788,44 @@ export default function BookingPortal() {
               Quase lá! Confira os dados abaixo antes de finalizar.
             </p>
 
-            <div className="bg-background rounded-lg p-4 border border-border/50 text-left space-y-2 text-sm sm:text-base">
-              <p><strong>Cliente:</strong> {name}</p>
-              <p><strong>Serviço:</strong> {selectedService?.name}</p>
-              <p><strong>Profissional:</strong> {selectedBarber?.first_name || selectedBarber?.name}</p>
-              <p><strong>Data:</strong> {selectedDate ? format(selectedDate, "dd/MM/yyyy") : ''} às {selectedTime}</p>
-              <div className="pt-3 mt-3 border-t border-border/50 flex justify-between items-center">
-                <strong>Total:</strong>
-                <span className="text-primary font-bold text-lg">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(selectedService?.price || 0))}</span>
+            <div className="space-y-4">
+              <div className="p-4 bg-muted/50 rounded-2xl border border-border/50 space-y-3 text-left">
+                <div className="flex items-center gap-3">
+                  <UserIcon className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">{name}</p>
+                    <p className="text-[11px] text-muted-foreground">{maskPhone(phone)}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Scissors className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Serviços Selecionados</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {selectedServices.map(s => s.name).join(', ')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <UserIcon className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Profissional</p>
+                    <p className="text-[11px] text-muted-foreground">{selectedBarber?.first_name || selectedBarber?.name}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">
+                      {selectedDate && dateToFrontend(format(selectedDate, 'yyyy-MM-dd'))} às {selectedTime}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Duração estimada: {selectedServices.reduce((a, b) => a + b.duration_minutes, 0)} min</p>
+                  </div>
+                </div>
+                <div className="pt-3 mt-3 border-t border-border/50 flex justify-between items-center">
+                  <strong>Total:</strong>
+                  <span className="text-primary font-bold text-lg">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedServices.reduce((acc, curr) => acc + Number(curr.price), 0))}</span>
+                </div>
               </div>
             </div>
 

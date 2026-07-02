@@ -63,7 +63,7 @@ type Appointment = {
   client_name: string;
   barber?: number | any;
   barber_name: string;
-  service?: number | any;
+  services?: number[] | any[];
   service_name: string;
   date_time: string;
   status: string;
@@ -90,7 +90,7 @@ type WaitlistEntry = {
   client_phone: string;
   barber: number | null;
   barber_name: string;
-  service: number | null;
+  services: number[];
   service_name: string;
   preferred_date: string;
   preferred_period: string;
@@ -182,7 +182,7 @@ export default function Agenda() {
   const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [walkInClient, setWalkInClient] = useState<any>(null);
   const [isWalkInClientPopoverOpen, setIsWalkInClientPopoverOpen] = useState(false);
-  const [walkInService, setWalkInService] = useState<any>(null);
+  const [walkInServices, setWalkInServices] = useState<any[]>([]);
   const [walkInBarber, setWalkInBarber] = useState<any>(null);
   const [walkInTime, setWalkInTime] = useState<string>('');
   const [pendingWaitlistEntryId, setPendingWaitlistEntryId] = useState<number | null>(null);
@@ -194,7 +194,7 @@ export default function Agenda() {
   const [newAppClient, setNewAppClient] = useState<any>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [isClientPopoverOpen, setIsClientPopoverOpen] = useState(false);
-  const [newAppService, setNewAppService] = useState<any>(null);
+  const [newAppServices, setNewAppServices] = useState<any[]>([]);
   const [newAppBarber, setNewAppBarber] = useState<any>(null);
   const [newAppTime, setNewAppTime] = useState<string>('');
   const [newAppNotes, setNewAppNotes] = useState<string>('');
@@ -219,7 +219,7 @@ export default function Agenda() {
   // Edit Appointment State
   const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
-  const [editService, setEditService] = useState<any>(null);
+  const [editServices, setEditServices] = useState<any[]>([]);
   const [editPayments, setEditPayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
   const [editDiscount, setEditDiscount] = useState<string>('');
   const [editTip, setEditTip] = useState<string>('');
@@ -324,24 +324,24 @@ export default function Agenda() {
   });
 
   const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
-    queryKey: ['available-times', newAppBarber?.id, selectedDate, newAppService?.id],
+    queryKey: ['available-times', newAppBarber?.id, selectedDate, newAppServices.map(s => s.id).join(',')],
     queryFn: async () => {
-      if (!newAppBarber || !selectedDate || !newAppService) return [];
+      if (!newAppBarber || !selectedDate || newAppServices.length === 0) return [];
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      const res = await api.get<string[]>(`/users/${newAppBarber.id}/available_times/?date=${dateStr}&service_id=${newAppService.id}`);
+      const res = await api.get<string[]>(`/users/${newAppBarber.id}/available_times/?date=${dateStr}&services_ids=${newAppServices.map(s => s.id).join(',')}`);
       return res.data;
     },
-    enabled: !!newAppBarber && !!selectedDate && !!newAppService && showNewAppointmentModal,
+    enabled: !!newAppBarber && !!selectedDate && newAppServices.length > 0 && showNewAppointmentModal,
   });
 
   const checkDatesAvailability = async (dates: Date[]) => {
-    if (!newAppBarber || !newAppService || !newAppTime || dates.length === 0) return;
+    if (!newAppBarber || newAppServices.length === 0 || !newAppTime || dates.length === 0) return;
 
     try {
       const dateStrings = dates.map(d => format(d, 'yyyy-MM-dd'));
       const res = await api.post('/appointments/check_availability/', {
         barber_id: newAppBarber.id,
-        service_id: newAppService.id,
+        services_ids: newAppServices.map(s => s.id),
         time: newAppTime,
         dates: dateStrings
       });
@@ -398,7 +398,7 @@ export default function Agenda() {
 
   const createAppointmentMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDate || !newAppTime || !newAppService || !newAppClient || !newAppBarber) return;
+      if (!selectedDate || !newAppTime || newAppServices.length === 0 || !newAppClient || !newAppBarber) return;
 
       const datesToCreate = isRecurring ? getRecurrenceDates() : [
         (() => {
@@ -426,12 +426,12 @@ export default function Agenda() {
 
         return api.post('/appointments/', {
           client: newAppClient.id,
-          service: newAppService.id,
+          services: newAppServices.map(s => s.id),
           barber: newAppBarber.id,
           date_time: dateTime.toISOString(),
           notes: (newAppNotes ? newAppNotes + recurrenceNote : recurrenceNote.trim()),
           status: 'confirmed',
-          total_price: newAppService.price,
+          total_price: newAppServices.reduce((a,b) => a + Number(b.price), 0),
           skip_notification: index > 0
         });
       });
@@ -475,8 +475,8 @@ export default function Agenda() {
     };
     setWalkInClient(client);
 
-    const service = services?.find((s: any) => s.id === entry.service);
-    if (service) setWalkInService(service);
+    const srv = services?.filter((s: any) => entry.services?.includes(s.id)) || [];
+    if (srv.length > 0) setWalkInServices(srv);
 
     const barber = barbers?.find((b: any) => b.id === entry.barber);
     if (barber) setWalkInBarber(barber);
@@ -514,7 +514,7 @@ export default function Agenda() {
   const resetNewAppForm = () => {
     setNewAppClient(null);
     setClientSearch('');
-    setNewAppService(null);
+    setNewAppServices([]);
     setNewAppBarber(null);
     setNewAppTime('');
     setNewAppNotes('');
@@ -607,8 +607,8 @@ export default function Agenda() {
       const app = res.data;
 
       setEditingAppointment(app);
-      const srv = services?.find((s: any) => s.id === app.service || s.name === app.service_name);
-      setEditService(srv || null);
+      const srv = services?.filter((s: any) => app.services?.includes(s.id)) || [];
+      setEditServices(srv || []);
 
       if (app.status === 'completed') {
         setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: p.amount.replace('.', ','), payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd') })) || [{ method: 'pix', amount: app.total_price.replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]);
@@ -764,12 +764,12 @@ export default function Agenda() {
 
   const createWalkInMutation = useMutation({
     mutationFn: async () => {
-      if (!walkInClient || !walkInService || !walkInBarber || !walkInTime) throw new Error("Preencha todos os campos.");
+      if (!walkInClient || walkInServices.length === 0 || !walkInBarber || !walkInTime) throw new Error("Preencha todos os campos.");
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const dateTime = `${dateStr}T${walkInTime}:00`;
 
       return api.post('/appointments/walk_in/', {
-        service_id: walkInService.id,
+        services_ids: walkInServices.map(s => s.id),
         barber_id: walkInBarber.id,
         client_id: walkInClient.id,
         client_name: walkInClient.first_name,
@@ -786,7 +786,7 @@ export default function Agenda() {
       }
 
       setWalkInClient(null);
-      setWalkInService(null);
+      setWalkInServices([]);
       setWalkInBarber(null);
       setWalkInTime('');
       toast.success('Atendimento avulso registrado com sucesso!');
@@ -840,7 +840,7 @@ export default function Agenda() {
   const isSaleExceeding = totalSalePaid > expectedSaleTotal + 0.01;
   const remainingSaleDebt = expectedSaleTotal - totalSalePaid;
 
-  const isWalkInValid = walkInClient && walkInService && walkInBarber && walkInTime;
+  const isWalkInValid = walkInClient && walkInServices.length > 0 && walkInBarber && walkInTime;
 
   const filteredAppointments = appointments || [];
 
@@ -1009,7 +1009,7 @@ export default function Agenda() {
               className="gap-2 h-10 sm:h-9 w-full sm:w-auto bg-[#4CAF50] hover:bg-[#388E3C] text-white font-bold"
               onClick={() => {
                 setWalkInClient(null);
-                setWalkInService(null);
+                setWalkInServices([]);
                 setWalkInBarber(me?.role === 'barber' ? me : null);
                 setShowWalkInModal(true);
               }}
@@ -1288,8 +1288,8 @@ export default function Agenda() {
 
                     if (item.type === 'appointment') {
                       startDate = new Date(item.date_time);
-                      const srv = services?.find(s => s.name === item.service_name || s.id === item.service);
-                      durationMinutes = srv?.duration_minutes || 30;
+                      const srvs = services?.filter(s => item.services?.includes(s.id)) || [];
+                      durationMinutes = srvs.length > 0 ? srvs.reduce((a,b) => a + b.duration_minutes, 0) : 30;
                       endDate = new Date(startDate.getTime() + durationMinutes * 60000);
                     } else {
                       startDate = new Date(item.start_time);
@@ -1707,8 +1707,8 @@ export default function Agenda() {
                 <div className="space-y-2">
                   <Label>Serviço</Label>
                   <Select
-                    value={editService?.id?.toString()}
-                    onValueChange={(val) => setEditService(services?.find((s: any) => s.id.toString() === val))}
+                    value={editServices[0]?.id?.toString()}
+                    onValueChange={(val) => setEditServices(services?.filter((s: any) => s.id.toString() === val) || [])}
                   >
                     <SelectTrigger className="bg-background border-border/50 h-11">
                       <SelectValue placeholder="Selecione o serviço" />
@@ -1735,10 +1735,11 @@ export default function Agenda() {
                             onChange={(e) => {
                               const val = maskCurrency(e.target.value);
                               setEditDiscount(val);
-                              if (editPayments.length === 1 && editService) {
+                              if (editPayments.length === 1 && editServices.length > 0) {
                                 const disc = parseFloat(unmaskCurrency(val)) || 0;
                                 const t = parseFloat(unmaskCurrency(editTip)) || 0;
-                                const newTotal = parseFloat(editService.price) - disc + t;
+                                const svcPrice = editServices.reduce((a,b)=>a+Number(b.price),0);
+                                const newTotal = svcPrice - disc + t;
                                 setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
                               }
                             }}
@@ -1756,10 +1757,11 @@ export default function Agenda() {
                             onChange={(e) => {
                               const val = maskCurrency(e.target.value);
                               setEditTip(val);
-                              if (editPayments.length === 1 && editService) {
+                              if (editPayments.length === 1 && editServices.length > 0) {
                                 const disc = parseFloat(unmaskCurrency(editDiscount)) || 0;
                                 const t = parseFloat(unmaskCurrency(val)) || 0;
-                                const newTotal = parseFloat(editService.price) - disc + t;
+                                const svcPrice = editServices.reduce((a,b)=>a+Number(b.price),0);
+                                const newTotal = svcPrice - disc + t;
                                 setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
                               }
                             }}
@@ -1896,16 +1898,16 @@ export default function Agenda() {
               <Button variant="outline" className="h-10" onClick={() => setShowEditAppointmentModal(false)}>Voltar</Button>
               <Button
                 className="px-6 font-bold h-10 bg-primary text-primary-foreground hover:bg-primary/90"
-                disabled={isFetchingEditData || !editService || updateAppointmentMutation.isPending}
+                disabled={isFetchingEditData || editServices.length === 0 || updateAppointmentMutation.isPending}
                 onClick={() => {
                   updateAppointmentMutation.mutate({
                     id: editingAppointment.id,
                     data: {
-                      service: editService.id,
+                      services: editServices.map(s => s.id),
                       payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
                       total_price: editingAppointment.status === 'completed'
                         ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0)
-                        : editService.price,
+                        : editServices.reduce((a,b)=>a+Number(b.price),0),
                       discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
                       tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
                     }
@@ -2347,8 +2349,8 @@ export default function Agenda() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Serviço</label>
               <Select
-                value={newAppService?.id?.toString()}
-                onValueChange={(val) => setNewAppService(services?.find(s => s.id.toString() === val))}
+                value={newAppServices[0]?.id?.toString()}
+                onValueChange={(val) => setNewAppServices(services?.filter(s => s.id.toString() === val) || [])}
               >
                 <SelectTrigger className="bg-background border-border/50">
                   <SelectValue placeholder="Selecione o Serviço" />
@@ -2384,7 +2386,7 @@ export default function Agenda() {
             </div>
 
             {/* Time Selection */}
-            {newAppBarber && newAppService && (
+            {newAppBarber && newAppServices.length > 0 && (
               <div className="space-y-3">
                 <label className="text-sm font-medium">Horários Disponíveis</label>
                 {isLoadingTimes ? (
@@ -2530,7 +2532,7 @@ export default function Agenda() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewAppointmentModal(false)}>Cancelar</Button>
             <Button
-              disabled={!newAppClient || !newAppService || !newAppBarber || !newAppTime || createAppointmentMutation.isPending}
+              disabled={!newAppClient || newAppServices.length === 0 || !newAppBarber || !newAppTime || createAppointmentMutation.isPending}
               onClick={() => createAppointmentMutation.mutate()}
             >
               {createAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -2769,10 +2771,10 @@ export default function Agenda() {
             <div className="space-y-2">
               <Label>Serviço *</Label>
               <Select
-                value={walkInService?.id?.toString() || ''}
+                value={walkInServices[0]?.id?.toString() || ''}
                 onValueChange={(val) => {
-                  const s = services?.find(x => x.id.toString() === val);
-                  if (s) setWalkInService(s);
+                  const s = services?.filter((x: any) => x.id.toString() === val) || [];
+                  if (s.length > 0) setWalkInServices(s);
                 }}
               >
                 <SelectTrigger className="bg-background border-border/50">
@@ -2796,9 +2798,9 @@ export default function Agenda() {
                   onChange={(e) => setWalkInTime(maskTime(e.target.value))}
                   inputMode="numeric"
                 />
-                {walkInService && walkInTime.length === 5 && (
+                {walkInServices.length > 0 && walkInTime.length === 5 && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-medium uppercase">
-                    Duração: {walkInService.duration_minutes} min
+                    Duração: {walkInServices.reduce((a,b)=>a+b.duration_minutes,0)} min
                   </div>
                 )}
               </div>
@@ -2824,11 +2826,11 @@ export default function Agenda() {
               </Select>
             </div>
 
-            {walkInService && (
-              <div className="space-y-4 pt-4 border-t border-border/50">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Valor do Serviço:</span>
-                  <span className="font-bold text-lg">{formatCurrency(walkInService.price)}</span>
+            {walkInServices.length > 0 && (
+              <div className="flex justify-between items-center bg-background/50 p-4 rounded-xl border border-border/50">
+                <span className="text-sm font-medium">Total</span>
+                <div className="text-right">
+                  <span className="font-bold text-lg">{formatCurrency(walkInServices.reduce((a,b)=>a+Number(b.price),0))}</span>
                 </div>
               </div>
             )}
